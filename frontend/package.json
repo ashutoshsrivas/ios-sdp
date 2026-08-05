@@ -1,0 +1,1 @@
+{"name":".","version":"0.1.0","description":"Fancy Next.js app","scripts":{"dev":"next","build":"next build","start":"next start","build:static":"next build && next out"},"devDependencies":{"next":"^16.0.0-beta.0","react":"^19.2.7","react-dom":"^19.2.7"},"dependencies":{"jspdf":"^2.5.2","jszip":"^3.10.1","qrcode":"^1.5.4"}}

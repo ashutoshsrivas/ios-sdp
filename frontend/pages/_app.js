@@ -1,0 +1,31 @@
+import '../styles/globals.css';
+import Head from 'next/head';
+import { AuthProvider } from '../lib/auth';
+import { BootcampProvider } from '../lib/bootcamp';
+import { PrefsProvider } from '../lib/prefs';
+import { ToastProvider } from '../components/UI';
+
+export default function App({ Component, pageProps }) {
+  return (
+    <>
+      <Head>
+        <title>iOSDC SDP</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta name="theme-color" content="#0a0a0c" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="iOSDC SDP" />
+      </Head>
+      <PrefsProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <BootcampProvider>
+              <Component {...pageProps} />
+            </BootcampProvider>
+          </AuthProvider>
+        </ToastProvider>
+      </PrefsProvider>
+    </>
+  );
+}

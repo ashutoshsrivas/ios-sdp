@@ -1,0 +1,26 @@
+# Sensitive files
+*.pem
+*.key
+*.env
+.env*
+# ...but the frontend production env holds only PUBLIC build values (basePath, API URL)
+!frontend/.env.production
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Locally-stored team chat uploads (auto-expire after 30 days)
+backend/chat-uploads/
+# Certificate template background images (served same-origin)
+backend/cert-uploads/
+
+# Dependencies are handled by package-specific .gitignore files
