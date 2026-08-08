@@ -3,7 +3,7 @@ const multer = require('multer');
 const { q } = require('../db');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { ah, HttpError } = require('../util');
-const { parseRosterBuffer, upsertRoster } = require('../rosterImport');
+const { parseRosterBuffer, upsertRoster, buildTemplateBuffer } = require('../rosterImport');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -86,6 +86,18 @@ router.delete(
   ah(async (req, res) => {
     await q(`DELETE FROM roster WHERE id = ?`, [Number(req.params.id)]);
     res.json({ ok: true });
+  })
+);
+
+// GET /api/roster/template  (admin) — download a blank .xlsx with the expected columns
+router.get(
+  '/template',
+  requireRole('admin'),
+  ah(async (_req, res) => {
+    const buffer = await buildTemplateBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="roster-template.xlsx"');
+    res.send(Buffer.from(buffer));
   })
 );
 

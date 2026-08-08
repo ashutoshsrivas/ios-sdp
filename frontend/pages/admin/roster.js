@@ -40,6 +40,11 @@ export default function AdminRoster() {
     catch (e) { toast.err(e.message); }
   };
 
+  const downloadTemplate = async () => {
+    try { await api.downloadFile('/api/roster/template', 'roster-template.xlsx'); }
+    catch (e) { toast.err(e.message); }
+  };
+
   const onImport = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -76,6 +81,7 @@ export default function AdminRoster() {
         actions={
           <>
             <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onImport} />
+            <Button variant="ghost" onClick={downloadTemplate}>⬇ Template</Button>
             <Button onClick={() => fileRef.current?.click()} disabled={importing}>{importing ? 'Importing…' : '⬆ Import Excel'}</Button>
             <Button variant="primary" onClick={openNew}>+ Add Entry</Button>
           </>

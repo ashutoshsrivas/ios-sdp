@@ -56,6 +56,38 @@ async function parseRosterBuffer(buffer) {
   return rows;
 }
 
+// The columns the importer understands, in a sensible display order. The header labels
+// here are what classifyHeader() matches on, so keep them in sync with that function.
+const TEMPLATE_COLUMNS = [
+  { header: 'Student Id', example: 'GEU2026001', width: 16 },
+  { header: 'Full Name', example: 'Jane Doe', width: 24 },
+  { header: 'Email ID', example: 'jane.doe@example.com', width: 30 },
+  { header: 'Phone', example: '9876543210', width: 16 },
+  { header: 'University Campus', example: 'GEU Dehradun', width: 22 },
+  { header: 'Test No', example: 'T-01', width: 10 },
+  { header: 'Status', example: 'CNF', width: 10 },
+];
+
+// Build a blank .xlsx the admin can fill in and re-upload through /api/roster/import.
+// One bold, frozen header row + a single greyed-out example row to show the format.
+async function buildTemplateBuffer() {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Roster');
+
+  ws.columns = TEMPLATE_COLUMNS.map((c) => ({ header: c.header, key: c.header, width: c.width }));
+
+  const header = ws.getRow(1);
+  header.font = { bold: true };
+  header.getCell(TEMPLATE_COLUMNS.findIndex((c) => c.header === 'Status') + 1).note =
+    'Optional. Common values: CNF (confirmed), WL (waitlist).';
+
+  const example = ws.addRow(TEMPLATE_COLUMNS.map((c) => c.example));
+  example.font = { italic: true, color: { argb: 'FF9AA0A6' } };
+
+  ws.views = [{ state: 'frozen', ySplit: 1 }];
+  return wb.xlsx.writeBuffer();
+}
+
 // Upsert rows into the roster. Dedups by student_id when present, else by email.
 async function upsertRoster(rows) {
   let inserted = 0;
@@ -95,4 +127,4 @@ async function upsertRoster(rows) {
   return { inserted, updated, total: rows.length };
 }
 
-module.exports = { parseRosterBuffer, upsertRoster };
+module.exports = { parseRosterBuffer, upsertRoster, buildTemplateBuffer };
