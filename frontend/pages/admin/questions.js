@@ -8,6 +8,7 @@ import {
 } from '../../components/UI';
 
 const INPUT_TYPES = ['text', 'textarea', 'number', 'file', 'date', 'url'];
+const blankItem = () => ({ title: '', description: '', input_type: 'text' });
 const AUDIENCES = [
   { value: 'all_students', label: 'All students' },
   { value: 'selected_students', label: 'Selected students' },
@@ -24,7 +25,8 @@ export default function AdminQuestions() {
   const [students, setStudents] = useState([]);
   const [teams, setTeams] = useState([]);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ input_type: 'text', audience: 'all_students', required: true });
+  const [items, setItems] = useState([blankItem()]); // one or more questions in this submission
+  const [shared, setShared] = useState({ audience: 'all_students', required: true }); // applies to all questions
   const [targets, setTargets] = useState([]); // ids
   const [busy, setBusy] = useState(false);
   const [answersFor, setAnswersFor] = useState(null);
@@ -40,22 +42,33 @@ export default function AdminQuestions() {
   };
   useEffect(() => { if (ok && bootcampId) load().catch((e) => toast.err(e.message)); }, [ok, bootcampId]);
 
-  const openNew = () => { setForm({ input_type: 'text', audience: 'all_students', required: true }); setTargets([]); setCreating(true); };
-  const needsStudents = form.audience === 'selected_students';
-  const needsTeams = form.audience === 'teams' || form.audience === 'team_spoc';
+  const openNew = () => { setItems([blankItem()]); setShared({ audience: 'all_students', required: true }); setTargets([]); setCreating(true); };
+  const needsStudents = shared.audience === 'selected_students';
+  const needsTeams = shared.audience === 'teams' || shared.audience === 'team_spoc';
   const toggleTarget = (id) => setTargets((t) => (t.includes(id) ? t.filter((x) => x !== id) : [...t, id]));
+  const addItem = () => setItems((xs) => [...xs, blankItem()]);
+  const removeItem = (i) => setItems((xs) => (xs.length > 1 ? xs.filter((_, idx) => idx !== i) : xs));
+  const setItem = (i, patch) => setItems((xs) => xs.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
 
   const save = async () => {
-    if (!form.title?.trim()) { toast.err('Title required'); return; }
+    const cleaned = items.map((it) => ({ ...it, title: (it.title || '').trim() }));
+    if (cleaned.some((it) => !it.title)) { toast.err('Every question needs a title'); return; }
     const refType = needsStudents ? 'student' : 'team';
-    const body = {
-      title: form.title, description: form.description, input_type: form.input_type,
-      audience: form.audience, required: form.required, bootcamp_id: bootcampId,
-      targets: (needsStudents || needsTeams) ? targets.map((id) => ({ ref_type: refType, ref_id: id })) : [],
-    };
+    const sharedTargets = (needsStudents || needsTeams) ? targets.map((id) => ({ ref_type: refType, ref_id: id })) : [];
     setBusy(true);
-    try { await api.post('/api/questions', body); setCreating(false); await load(); toast.ok('Question published'); }
-    catch (e) { toast.err(e.message); }
+    try {
+      // Each question is published independently, all sharing this submission's audience.
+      for (const it of cleaned) {
+        await api.post('/api/questions', {
+          title: it.title, description: it.description, input_type: it.input_type,
+          audience: shared.audience, required: shared.required, bootcamp_id: bootcampId,
+          targets: sharedTargets,
+        });
+      }
+      setCreating(false);
+      await load();
+      toast.ok(cleaned.length === 1 ? 'Question published' : `${cleaned.length} questions published`);
+    } catch (e) { toast.err(e.message); await load(); }
     setBusy(false);
   };
 
@@ -145,23 +158,38 @@ export default function AdminQuestions() {
           onClose={() => setCreating(false)}
           footer={<><Button onClick={() => setCreating(false)}>Cancel</Button><Button variant="primary" onClick={save} disabled={busy}>Publish</Button></>}
         >
-          <Field label="Question / title"><Input value={form.title || ''} onChange={(e) => setForm({ ...form, title: e.target.value })} /></Field>
-          <Field label="Description (optional)"><Textarea value={form.description || ''} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
+          {items.map((it, i) => (
+            <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+              <div className="hstack" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Question {i + 1}</span>
+                {items.length > 1 && (
+                  <Button size="sm" variant="ghost" onClick={() => removeItem(i)}>✕ Remove</Button>
+                )}
+              </div>
+              <Field label="Question / title"><Input value={it.title} onChange={(e) => setItem(i, { title: e.target.value })} /></Field>
+              <Field label="Description (optional)"><Textarea value={it.description} onChange={(e) => setItem(i, { description: e.target.value })} /></Field>
+              <Field label="Answer type">
+                <Select value={it.input_type} onChange={(e) => setItem(i, { input_type: e.target.value })}>
+                  {INPUT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </Select>
+              </Field>
+            </div>
+          ))}
+          <Button onClick={addItem} style={{ marginBottom: 14 }}>+ Add question</Button>
+
+          <div className="divider" />
           <div className="row-fields">
-            <Field label="Answer type">
-              <Select value={form.input_type} onChange={(e) => setForm({ ...form, input_type: e.target.value })}>
-                {INPUT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </Select>
-            </Field>
-            <Field label="Audience">
-              <Select value={form.audience} onChange={(e) => { setForm({ ...form, audience: e.target.value }); setTargets([]); }}>
+            <Field label="Audience (applies to all questions above)">
+              <Select value={shared.audience} onChange={(e) => { setShared({ ...shared, audience: e.target.value }); setTargets([]); }}>
                 {AUDIENCES.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
               </Select>
             </Field>
+            <Field label="Options">
+              <label className="hstack" style={{ fontSize: 14, cursor: 'pointer', alignItems: 'center', height: 38 }}>
+                <input type="checkbox" checked={!!shared.required} onChange={(e) => setShared({ ...shared, required: e.target.checked })} /> Required
+              </label>
+            </Field>
           </div>
-          <label className="hstack" style={{ fontSize: 14, cursor: 'pointer', marginBottom: 10 }}>
-            <input type="checkbox" checked={!!form.required} onChange={(e) => setForm({ ...form, required: e.target.checked })} /> Required
-          </label>
 
           {needsStudents && (
             <Field label={`Select students (${targets.length})`}>
@@ -176,7 +204,7 @@ export default function AdminQuestions() {
             </Field>
           )}
           {needsTeams && (
-            <Field label={`Select teams (${targets.length})${form.audience === 'team_spoc' ? ' — leave empty for all SPOCs' : ''}`}>
+            <Field label={`Select teams (${targets.length})${shared.audience === 'team_spoc' ? ' — leave empty for all SPOCs' : ''}`}>
               <div className="list" style={{ maxHeight: 220, overflowY: 'auto' }}>
                 {teams.map((t) => (
                   <label key={t.id} className="row" style={{ cursor: 'pointer' }}>
