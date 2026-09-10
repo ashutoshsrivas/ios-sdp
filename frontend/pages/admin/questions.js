@@ -55,14 +55,18 @@ export default function AdminQuestions() {
     if (cleaned.some((it) => !it.title)) { toast.err('Every question needs a title'); return; }
     const refType = needsStudents ? 'student' : 'team';
     const sharedTargets = (needsStudents || needsTeams) ? targets.map((id) => ({ ref_type: refType, ref_id: id })) : [];
+    // Tag questions published together so they can be grouped + exported as one CSV.
+    const batchId = cleaned.length > 1
+      ? ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `b_${Date.now()}_${Math.random().toString(16).slice(2)}`)
+      : null;
     setBusy(true);
     try {
-      // Each question is published independently, all sharing this submission's audience.
+      // Each question is published independently, all sharing this submission's audience + batch.
       for (const it of cleaned) {
         await api.post('/api/questions', {
           title: it.title, description: it.description, input_type: it.input_type,
           audience: shared.audience, required: shared.required, bootcamp_id: bootcampId,
-          targets: sharedTargets,
+          targets: sharedTargets, batch_id: batchId,
         });
       }
       setCreating(false);
@@ -113,7 +117,68 @@ export default function AdminQuestions() {
     } catch (e) { toast.err(e.message); }
   };
 
+  // One combined CSV for a group of questions created together: a column per question,
+  // a row per student who answered at least one of them.
+  const exportGroupCsv = async (group) => {
+    try {
+      const esc = (c) => { const s = c == null ? '' : String(c); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+      const display = (a) => (!a ? '' : a.file_url ? (a.file_name || 'file') : a.value_number != null ? a.value_number : (a.value_text || ''));
+      const perQ = await Promise.all(group.map((g) => api.get(`/api/questions/${g.id}/answers`)));
+      const students = new Map(); // student_id -> {name,email,team}
+      const maps = perQ.map((rows) => {
+        const m = new Map();
+        rows.forEach((a) => {
+          m.set(a.student_id, a);
+          if (!students.has(a.student_id)) students.set(a.student_id, { name: a.student_name, email: a.student_email, team: a.team_name || '' });
+        });
+        return m;
+      });
+      const list = [...students.entries()].map(([id, info]) => ({ id, ...info }))
+        .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      const header = ['S.No', 'Student', 'Email', 'Team', ...group.map((g) => g.title)];
+      const body = list.map((st, i) => [i + 1, st.name, st.email, st.team, ...group.map((g, qi) => display(maps[qi].get(st.id)))]);
+      const csv = '﻿' + [header, ...body].map((r) => r.map(esc).join(',')).join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const el = document.createElement('a');
+      el.href = url; el.download = `submission-${group.length}-questions.csv`;
+      document.body.appendChild(el); el.click(); el.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { toast.err(e.message); }
+  };
+
   if (!ok || !bootcampId || !questions) return <Layout><Loading /></Layout>;
+
+  // Group questions published together (shared batch_id); ungrouped questions stand alone.
+  const groups = [];
+  const groupIndex = new Map();
+  for (const qq of questions) {
+    const key = qq.batch_id || `single-${qq.id}`;
+    if (!groupIndex.has(key)) { groupIndex.set(key, groups.length); groups.push([]); }
+    groups[groupIndex.get(key)].push(qq);
+  }
+
+  const questionRow = (q, showCsv) => (
+    <div className="row" key={q.id}>
+      <div className="grow">
+        <div className="title">{q.title}</div>
+        {q.description && (
+          <div style={{ color: 'var(--muted)', fontSize: 13.5, margin: '3px 0 6px', whiteSpace: 'pre-wrap' }}>{q.description}</div>
+        )}
+        <div className="desc">
+          <Badge color="blue">{q.input_type}</Badge>{' '}
+          <Badge color="purple">{AUD_LABEL[q.audience]}</Badge>{' '}
+          {q.required ? <Badge color="orange">required</Badge> : null}
+        </div>
+      </div>
+      <Button size="sm" onClick={() => openAnswers(q)}>{q.answer_count} answer{q.answer_count === 1 ? '' : 's'}</Button>
+      {showCsv && <Button size="sm" onClick={() => exportCsv(q)} disabled={!q.answer_count}>⤓ CSV</Button>}
+      {q.input_type === 'file' && (
+        <Button size="sm" onClick={() => downloadZip(q)} disabled={!q.answer_count}>⤓ Files</Button>
+      )}
+      <Button size="sm" variant="ghost" onClick={() => remove(q)}>Delete</Button>
+    </div>
+  );
 
   return (
     <Layout>
@@ -126,27 +191,19 @@ export default function AdminQuestions() {
       {questions.length === 0 ? (
         <Card><Empty icon="❓" title="No questions yet" /></Card>
       ) : (
-        <div className="list">
-          {questions.map((q) => (
-            <div className="row" key={q.id}>
-              <div className="grow">
-                <div className="title">{q.title}</div>
-                {q.description && (
-                  <div style={{ color: 'var(--muted)', fontSize: 13.5, margin: '3px 0 6px', whiteSpace: 'pre-wrap' }}>{q.description}</div>
-                )}
-                <div className="desc">
-                  <Badge color="blue">{q.input_type}</Badge>{' '}
-                  <Badge color="purple">{AUD_LABEL[q.audience]}</Badge>{' '}
-                  {q.required ? <Badge color="orange">required</Badge> : null}
-                </div>
+        <div className="vstack">
+          {groups.map((group) => group.length === 1 ? (
+            <div className="list" key={group[0].id}>{questionRow(group[0], true)}</div>
+          ) : (
+            <Card key={group[0].batch_id} style={{ padding: 12 }}>
+              <div className="hstack" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  Submission · {group.length} questions
+                </span>
+                <Button size="sm" onClick={() => exportGroupCsv(group)} disabled={!group.some((g) => g.answer_count)}>⤓ CSV (all)</Button>
               </div>
-              <Button size="sm" onClick={() => openAnswers(q)}>{q.answer_count} answer{q.answer_count === 1 ? '' : 's'}</Button>
-              <Button size="sm" onClick={() => exportCsv(q)} disabled={!q.answer_count}>⤓ CSV</Button>
-              {q.input_type === 'file' && (
-                <Button size="sm" onClick={() => downloadZip(q)} disabled={!q.answer_count}>⤓ Files</Button>
-              )}
-              <Button size="sm" variant="ghost" onClick={() => remove(q)}>Delete</Button>
-            </div>
+              <div className="list">{group.map((g) => questionRow(g, false))}</div>
+            </Card>
           ))}
         </div>
       )}

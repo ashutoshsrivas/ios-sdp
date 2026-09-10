@@ -60,15 +60,15 @@ router.post(
   '/',
   requireRole('admin'),
   ah(async (req, res) => {
-    const { title, description, input_type, audience, required, targets, bootcamp_id } = req.body || {};
+    const { title, description, input_type, audience, required, targets, bootcamp_id, batch_id } = req.body || {};
     if (!bootcamp_id) throw new HttpError(400, 'bootcamp_id is required');
     if (!title) throw new HttpError(400, 'Title is required');
     if (!INPUT_TYPES.includes(input_type)) throw new HttpError(400, 'Invalid input_type');
     if (!AUDIENCES.includes(audience)) throw new HttpError(400, 'Invalid audience');
 
     const r = await q(
-      `INSERT INTO questions (title, description, input_type, audience, required, bootcamp_id) VALUES (?,?,?,?,?,?)`,
-      [title.trim(), description || null, input_type, audience, required ? 1 : 0, Number(bootcamp_id)]
+      `INSERT INTO questions (title, description, input_type, audience, required, bootcamp_id, batch_id) VALUES (?,?,?,?,?,?,?)`,
+      [title.trim(), description || null, input_type, audience, required ? 1 : 0, Number(bootcamp_id), batch_id ? String(batch_id).slice(0, 40) : null]
     );
     if (Array.isArray(targets)) {
       for (const t of targets) {

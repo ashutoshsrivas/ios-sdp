@@ -146,6 +146,7 @@ CREATE TABLE IF NOT EXISTS questions (
   input_type ENUM('text','textarea','number','file','date','url') NOT NULL DEFAULT 'text',
   audience ENUM('all_students','selected_students','teams','team_spoc') NOT NULL,
   required TINYINT NOT NULL DEFAULT 1,
+  batch_id VARCHAR(40),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
