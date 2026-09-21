@@ -9,6 +9,15 @@ import {
 
 const INPUT_TYPES = ['text', 'textarea', 'number', 'file', 'date', 'url'];
 const blankItem = () => ({ title: '', description: '', input_type: 'text' });
+
+// A CSV cell that opens the uploaded file when clicked (Excel, Sheets, Numbers all
+// understand HYPERLINK). Quotes are swapped out so the formula can't be broken by a
+// filename; esc() wraps and escapes the finished cell. Plain file-URL columns are kept
+// alongside so the raw link survives tools that ignore formulas.
+const fileLink = (url, label) =>
+  !url
+    ? label || ''
+    : `=HYPERLINK("${String(url).replace(/"/g, '%22')}","${String(label || 'file').replace(/"/g, "'")}")`;
 const AUDIENCES = [
   { value: 'all_students', label: 'All students' },
   { value: 'selected_students', label: 'Selected students' },
@@ -94,10 +103,11 @@ export default function AdminQuestions() {
       };
       const header = ['S.No', 'Student', 'Email', 'Team', 'Answer', 'File Name', 'File URL', 'Submitted At'];
       const body = rows.map((a, i) => {
-        const answer = a.file_url ? (a.file_name || 'file')
+        const answer = a.file_url ? fileLink(a.file_url, a.file_name)
           : a.value_number != null ? a.value_number
           : (a.value_text || '');
-        return [i + 1, a.student_name, a.student_email, a.team_name || '', answer, a.file_name || '', a.file_url || '', a.updated_at || a.created_at || ''];
+        return [i + 1, a.student_name, a.student_email, a.team_name || '', answer,
+          fileLink(a.file_url, a.file_name), a.file_url || '', a.updated_at || a.created_at || ''];
       });
       const csv = '﻿' + [header, ...body].map((r) => r.map(esc).join(',')).join('\r\n');
       const slug = question.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'submission';
@@ -122,7 +132,7 @@ export default function AdminQuestions() {
   const exportGroupCsv = async (group) => {
     try {
       const esc = (c) => { const s = c == null ? '' : String(c); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-      const display = (a) => (!a ? '' : a.file_url ? (a.file_name || 'file') : a.value_number != null ? a.value_number : (a.value_text || ''));
+      const display = (a) => (!a ? '' : a.file_url ? fileLink(a.file_url, a.file_name) : a.value_number != null ? a.value_number : (a.value_text || ''));
       const perQ = await Promise.all(group.map((g) => api.get(`/api/questions/${g.id}/answers`)));
       const students = new Map(); // student_id -> {name,email,team}
       const maps = perQ.map((rows) => {
@@ -135,8 +145,14 @@ export default function AdminQuestions() {
       });
       const list = [...students.entries()].map(([id, info]) => ({ id, ...info }))
         .sort((a, b) => String(a.name).localeCompare(String(b.name)));
-      const header = ['S.No', 'Student', 'Email', 'Team', ...group.map((g) => g.title)];
-      const body = list.map((st, i) => [i + 1, st.name, st.email, st.team, ...group.map((g, qi) => display(maps[qi].get(st.id)))]);
+      // A file question also gets a plain-text URL column next to its clickable cell.
+      const header = ['S.No', 'Student', 'Email', 'Team',
+        ...group.flatMap((g) => (g.input_type === 'file' ? [g.title, `${g.title} (file URL)`] : [g.title]))];
+      const body = list.map((st, i) => [i + 1, st.name, st.email, st.team,
+        ...group.flatMap((g, qi) => {
+          const a = maps[qi].get(st.id);
+          return g.input_type === 'file' ? [display(a), a?.file_url || ''] : [display(a)];
+        })]);
       const csv = '﻿' + [header, ...body].map((r) => r.map(esc).join(',')).join('\r\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
