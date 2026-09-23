@@ -18,6 +18,10 @@ const NAV = {
       { href: '/admin/students', label: 'Registrations', icon: 'clipboard' },
       { href: '/admin/teams', label: 'Teams', icon: 'users' },
     ] },
+    { section: 'Website', items: [
+      { href: '/admin/highlights', label: 'Highlights', icon: 'star' },
+      { href: '/admin/apps', label: 'Apps', icon: 'grid' },
+    ] },
     { section: 'Assessment', items: [
       { href: '/admin/rubrics', label: 'Rubrics', icon: 'sliders' },
       { href: '/admin/tasks', label: 'Task & Feedback', icon: 'check' },

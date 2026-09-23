@@ -3,7 +3,15 @@ import { useRequireRole } from '../../lib/auth';
 import { useBootcamp } from '../../lib/bootcamp';
 import { api } from '../../lib/api';
 import Layout, { PageHead } from '../../components/Layout';
-import { Card, Button, Loading, useToast, Badge, Modal, Field, Input, Textarea, Empty } from '../../components/UI';
+import { Card, Button, Loading, useToast, Badge, Modal, Field, Input, Textarea, Empty, Switch } from '../../components/UI';
+
+// Mirrors slugify() on the server so the admin sees the URL they'll actually get.
+function slugPreview(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'cohort';
+}
 
 export default function AdminBootcamps() {
   const { ok } = useRequireRole(['admin']);
@@ -14,7 +22,17 @@ export default function AdminBootcamps() {
   const [busy, setBusy] = useState(false);
 
   const openNew = () => { setForm({}); setEditing({}); };
-  const openEdit = (b) => { setForm({ name: b.name, description: b.description || '' }); setEditing(b); };
+  const openEdit = (b) => {
+    setForm({
+      name: b.name,
+      description: b.description || '',
+      public_visible: !!b.public_visible,
+      public_slug: b.public_slug || '',
+      tagline: b.tagline || '',
+      sort_order: b.sort_order ?? '',
+    });
+    setEditing(b);
+  };
 
   const save = async () => {
     if (!form.name?.trim()) { toast.err('Name is required'); return; }
@@ -91,6 +109,43 @@ export default function AdminBootcamps() {
         >
           <Field label="Name"><Input value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Winter 2026 Cohort" /></Field>
           <Field label="Description"><Textarea value={form.description || ''} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
+
+          {editing.id && (
+            <>
+              <div className="divider" />
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>Public website</div>
+              <Switch
+                checked={!!form.public_visible}
+                onChange={(v) => setForm({ ...form, public_visible: v })}
+                label="Show this cohort on iosdc.geu.ac.in"
+              />
+              <Field label="Tagline (shown under the cohort name on the website)">
+                <Input
+                  value={form.tagline || ''}
+                  onChange={(e) => setForm({ ...form, tagline: e.target.value })}
+                  placeholder="e.g. 32 students, 8 apps shipped"
+                />
+              </Field>
+              <Field label="Public URL">
+                <Input
+                  value={form.public_slug || ''}
+                  onChange={(e) => setForm({ ...form, public_slug: e.target.value })}
+                  placeholder="cohort-1"
+                />
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                  iosdc.geu.ac.in/cohort.html?c={form.public_slug || slugPreview(form.name)} — leave blank to
+                  derive it from the name.
+                </div>
+              </Field>
+              <Field label="Nav order (lower shows first)">
+                <Input
+                  type="number"
+                  value={form.sort_order ?? ''}
+                  onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
+                />
+              </Field>
+            </>
+          )}
         </Modal>
       )}
     </Layout>
