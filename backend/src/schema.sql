@@ -218,3 +218,51 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   CONSTRAINT fk_chat_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
   CONSTRAINT fk_chat_sender FOREIGN KEY (sender_student_id) REFERENCES students(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- Public website content (iosdc.geu.ac.in), authored by admins in the SDP.
+-- Everything here is served unauthenticated via /api/public/*, so only rows
+-- explicitly marked published/visible are ever exposed.
+-- ---------------------------------------------------------------------------
+
+-- An event or highlight shown on the public Highlights page.
+CREATE TABLE IF NOT EXISTS highlights (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  title VARCHAR(190) NOT NULL,
+  description TEXT NULL,
+  event_date DATE NULL,
+  published TINYINT NOT NULL DEFAULT 0,
+  sort_order INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_highlight_pub (published, event_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Photos attached to a highlight (a highlight may have many).
+CREATE TABLE IF NOT EXISTS highlight_photos (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  highlight_id INT NOT NULL,
+  url VARCHAR(1024) NOT NULL,
+  caption VARCHAR(255) NULL,
+  sort_order INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_photo_highlight (highlight_id, sort_order),
+  CONSTRAINT fk_photo_highlight FOREIGN KEY (highlight_id) REFERENCES highlights(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- An app built by a cohort, shown on that cohort's public page.
+-- modal_html is optional: when set, "Know more" opens it instead of description.
+-- It is sanitised server-side before storage (see routes/publicContent.js).
+CREATE TABLE IF NOT EXISTS cohort_apps (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  bootcamp_id INT NOT NULL,
+  title VARCHAR(190) NOT NULL,
+  description TEXT NULL,
+  hero_image_url VARCHAR(1024) NULL,
+  link_url VARCHAR(1024) NULL,
+  modal_html MEDIUMTEXT NULL,
+  published TINYINT NOT NULL DEFAULT 1,
+  sort_order INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_app_cohort (bootcamp_id, sort_order),
+  CONSTRAINT fk_app_cohort FOREIGN KEY (bootcamp_id) REFERENCES bootcamps(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

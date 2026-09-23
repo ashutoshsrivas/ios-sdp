@@ -65,6 +65,20 @@ async function ensureNullable(table, column, definition) {
   }
 }
 
+// Add a unique index only if it doesn't already exist.
+async function ensureUniqueIndex(table, indexName, columns) {
+  const [rows] = await pool.query(
+    `SELECT 1 FROM information_schema.statistics
+     WHERE table_schema = ? AND table_name = ? AND index_name = ?`,
+    [config.db.name, table, indexName]
+  );
+  if (rows.length === 0) {
+    await pool.query(
+      `ALTER TABLE \`${table}\` ADD UNIQUE INDEX \`${indexName}\` (${columns})`
+    );
+  }
+}
+
 // Bring pre-existing databases up to the multi-bootcamp schema.
 async function migrate() {
   await ensureColumn('students', 'bootcamp_id', 'INT NULL');
@@ -81,6 +95,13 @@ async function migrate() {
   await ensureColumn('questions', 'batch_id', 'VARCHAR(40) NULL');
   await ensureColumn('certificates', 'verify_code', 'VARCHAR(40) NULL');
   await ensureColumn('certificates', 'revoked', 'TINYINT NOT NULL DEFAULT 0');
+  // Public-website fields on a cohort. public_visible is deliberately separate
+  // from status: an active cohort is not automatically shown on the website.
+  await ensureColumn('bootcamps', 'public_visible', 'TINYINT NOT NULL DEFAULT 0');
+  await ensureColumn('bootcamps', 'public_slug', 'VARCHAR(80) NULL');
+  await ensureColumn('bootcamps', 'tagline', 'VARCHAR(255) NULL');
+  await ensureColumn('bootcamps', 'sort_order', 'INT NULL');
+  await ensureUniqueIndex('bootcamps', 'uniq_bootcamp_slug', 'public_slug');
   // Allow comment-only rubric scores (a mentor may leave a comment without a number).
   await ensureNullable('rubric_scores', 'score', 'DECIMAL(6,2) NULL');
 }

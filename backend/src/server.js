@@ -21,6 +21,10 @@ async function main() {
 
   app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'ios-bootcamp-api' }));
 
+  // Public website content — the only unauthenticated router. Mounted first so
+  // it is unmistakably separate from everything behind authRequired below.
+  app.use('/api/public', require('./routes/public'));
+
   app.use('/api/auth', require('./routes/auth'));
   app.use('/api/users', require('./routes/users'));
   app.use('/api/bootcamps', require('./routes/bootcamps'));
@@ -35,6 +39,8 @@ async function main() {
   app.use('/api/uploads', require('./routes/uploads'));
   app.use('/api/chat', require('./routes/chat'));
   app.use('/api/certificates', require('./routes/certificates'));
+  app.use('/api/highlights', require('./routes/highlights'));
+  app.use('/api/cohort-apps', require('./routes/cohortApps'));
 
   // 404
   app.use((req, res) => res.status(404).json({ error: 'Not found' }));
