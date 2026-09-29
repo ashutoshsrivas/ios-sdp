@@ -105,6 +105,12 @@ export default function AdminTeams() {
     try { await api.put(`/api/teams/${teamId}/mentors`, { mentorIds }); setMentorModal(null); await load(); toast.ok('Mentors updated'); }
     catch (e) { toast.err(e.message); }
   };
+  const saveName = async (teamId, name) => {
+    const next = (name || '').trim();
+    if (!next) { toast.err('Team name cannot be empty'); return false; }
+    try { await api.put(`/api/teams/${teamId}`, { name: next }); await load(); toast.ok('Team renamed'); return true; }
+    catch (e) { toast.err(e.message); return false; }
+  };
   const saveRemark = async (teamId, remarks) => {
     try { await api.put(`/api/teams/${teamId}`, { remarks }); await load(); toast.ok('Remark saved'); }
     catch (e) { toast.err(e.message); }
@@ -208,7 +214,7 @@ export default function AdminTeams() {
               onDrop={() => onDrop(t.id)}
             >
               <div className="hstack" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
-                <h3>{t.name}</h3>
+                <TeamName team={t} onSave={saveName} />
                 <div className="hstack" style={{ gap: 6 }}>
                   {t.table_id && <Badge color="orange">{t.table_id}</Badge>}
                   <Badge color="gray">{t.members.length}</Badge>
@@ -326,6 +332,54 @@ export default function AdminTeams() {
         />
       )}
     </Layout>
+  );
+}
+
+// Team heading that turns into an input when you click the pencil. Enter saves, Escape cancels.
+function TeamName({ team, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(team.name);
+  const [saving, setSaving] = useState(false);
+
+  const start = () => { setValue(team.name); setEditing(true); };
+  const cancel = () => { setEditing(false); setValue(team.name); };
+  const commit = async () => {
+    if (saving) return;
+    if (value.trim() === team.name) { cancel(); return; }
+    setSaving(true);
+    const done = await onSave(team.id, value);
+    setSaving(false);
+    if (done) setEditing(false);   // a rejected name keeps the input open to fix
+  };
+
+  if (!editing) {
+    return (
+      <h3 className="hstack" style={{ gap: 6, minWidth: 0 }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{team.name}</span>
+        <Button size="sm" variant="ghost" onClick={start} title="Rename team" aria-label={`Rename ${team.name}`}>
+          ✎
+        </Button>
+      </h3>
+    );
+  }
+  return (
+    <div className="hstack" style={{ gap: 6, minWidth: 0 }}>
+      <Input
+        value={value}
+        autoFocus
+        maxLength={120}
+        disabled={saving}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); commit(); }
+          if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+        }}
+        onBlur={commit}
+        style={{ padding: '6px 10px', fontSize: 15, fontWeight: 600 }}
+      />
+      {/* mouseDown, not click: blur would otherwise fire first and save what we are cancelling */}
+      <Button size="sm" variant="ghost" onMouseDown={(e) => { e.preventDefault(); cancel(); }} disabled={saving}>✕</Button>
+    </div>
   );
 }
 
