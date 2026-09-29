@@ -30,6 +30,22 @@ function questionApplies(question, targets, student, spocTeamIds) {
   }
 }
 
+// Newest submission first, but the questions inside one submission stay in the order they
+// were authored. They are inserted one by one, so ascending id is that order — created_at
+// alone is not enough, since a whole batch usually lands within the same second and MySQL
+// then returns tied rows in no particular order.
+function orderQuestions(rows) {
+  const keyOf = (r) => r.batch_id || `single-${r.id}`;
+  const newest = new Map();
+  for (const r of rows) {
+    const k = keyOf(r);
+    if (!newest.has(k) || r.id > newest.get(k)) newest.set(k, r.id);
+  }
+  return [...rows].sort(
+    (a, b) => newest.get(keyOf(b)) - newest.get(keyOf(a)) || a.id - b.id
+  );
+}
+
 // ---------- Admin management ----------
 
 // GET /api/questions?bootcamp=  (admin)
@@ -38,9 +54,9 @@ router.get(
   requireRole('admin'),
   ah(async (req, res) => {
     if (!req.query.bootcamp) throw new HttpError(400, 'bootcamp is required');
-    const questions = await q(`SELECT * FROM questions WHERE bootcamp_id = ? ORDER BY created_at DESC`, [
-      Number(req.query.bootcamp),
-    ]);
+    const questions = orderQuestions(
+      await q(`SELECT * FROM questions WHERE bootcamp_id = ?`, [Number(req.query.bootcamp)])
+    );
     const targets = await q(`SELECT * FROM question_targets`);
     const counts = await q(
       `SELECT question_id, COUNT(*) AS answers FROM answers GROUP BY question_id`
@@ -170,9 +186,9 @@ router.get(
   ah(async (req, res) => {
     const student = await currentStudent(req.user.id);
     if (!student) throw new HttpError(404, 'No student profile linked to this account');
-    const questions = await q(`SELECT * FROM questions WHERE bootcamp_id = ? ORDER BY created_at DESC`, [
-      student.bootcamp_id,
-    ]);
+    const questions = orderQuestions(
+      await q(`SELECT * FROM questions WHERE bootcamp_id = ?`, [student.bootcamp_id])
+    );
     const targets = await q(`SELECT * FROM question_targets`);
     const spocRows = await q(`SELECT id FROM teams WHERE spoc_student_id = ?`, [student.id]);
     const spocTeamIds = spocRows.map((r) => r.id);
