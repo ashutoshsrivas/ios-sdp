@@ -93,6 +93,8 @@ async function migrate() {
   await ensureColumn('rubrics', 'bootcamp_id', 'INT NULL');
   await ensureColumn('questions', 'bootcamp_id', 'INT NULL');
   await ensureColumn('questions', 'batch_id', 'VARCHAR(40) NULL');
+  // Per-question upload cap in MB; NULL falls back to the global setting.
+  await ensureColumn('questions', 'max_upload_mb', 'INT NULL');
   await ensureColumn('certificates', 'verify_code', 'VARCHAR(40) NULL');
   await ensureColumn('certificates', 'revoked', 'TINYINT NOT NULL DEFAULT 0');
   // Public-website fields on a cohort. public_visible is deliberately separate

@@ -66,8 +66,13 @@ then reinstall, run `npm run build` in frontend (the box has 1.8 GB RAM and no s
   `requireRole(...roles)` gates routes. Routers apply their own guards.
 - `routes/*` — one router per domain: auth, users, bootcamps, roster, students, teams,
   settings, rubrics, tasks, questions, reports, uploads, chat, certificates.
-- `s3.js` — AWS SDK v3 upload helper used by `/api/uploads` (25 MB, memory storage).
+- `s3.js` — AWS SDK v3 upload helper used by `/api/uploads` (memory storage).
   `signedUrlFor()` is there for a future private-bucket setup.
+- `uploadLimit.js` — resolves an upload's size cap and builds multer per request.
+  multer fixes `limits.fileSize` when the instance is created, so a shared instance
+  cannot honour a per-question cap. Use `singleFileWithLimit()` for any new upload
+  route; it also maps `LIMIT_FILE_SIZE` to a 413 with the limit in the message
+  (otherwise the error has no `.status` and surfaces as a generic 500).
 
 **Frontend** (`frontend/`):
 - `pages/_app.js` — provider order: `PrefsProvider` → `ToastProvider` → `AuthProvider` → `BootcampProvider`.
@@ -127,6 +132,12 @@ then reinstall, run `npm run build` in frontend (the box has 1.8 GB RAM and no s
   `verify_code`. Both stay the same when a certificate is re-issued. Rendering happens
   **client-side** in `components/Certificate.js` (canvas + `qrcode`, bulk export via `jspdf`/`jszip`).
   `GET /api/certificates/verify/:code` is public.
+- **Upload size limits**: the cap is the question's `max_upload_mb` when set, else the
+  `max_upload_mb` row in `settings` (default 25 MB, hard ceiling 200 MB so a typo can't
+  let a multi-GB file into memory on a 1.8 GB box). Admins set the default in Settings
+  and the per-question override in the question builder. `/api/questions/mine` returns
+  `effective_max_upload_mb` so students see the limit and are stopped client-side first;
+  `GET /api/uploads/limit[?question=]` exposes it to any other caller.
 - **Reports**: `GET /api/reports?bootcamp=` (admin) returns the raw data. The analytics are
   computed in `pages/admin/reports.js`.
 

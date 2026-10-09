@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRequireRole } from '../lib/auth';
 import { usePrefs, FONTS } from '../lib/prefs';
 import { api } from '../lib/api';
@@ -11,6 +11,35 @@ export default function Settings() {
   const toast = useToast();
   const [pw, setPw] = useState({ currentPassword: '', newPassword: '', confirm: '' });
   const [busy, setBusy] = useState(false);
+
+  // Site-wide upload cap (admins only). A question can override it.
+  const [maxUploadMb, setMaxUploadMb] = useState('');
+  const [uploadCeiling, setUploadCeiling] = useState(200);
+  const [savingUpload, setSavingUpload] = useState(false);
+  const isAdmin = user?.role === 'admin';
+
+  useEffect(() => {
+    if (!ok || !isAdmin) return;
+    api.get('/api/settings')
+      .then((cfg) => {
+        setMaxUploadMb(String(cfg?.max_upload_mb ?? 25));
+        setUploadCeiling(Number(cfg?.max_upload_mb_ceiling) || 200);
+      })
+      .catch(() => {});
+  }, [ok, isAdmin]);
+
+  const saveUploadLimit = async (e) => {
+    e.preventDefault();
+    const n = Number(maxUploadMb);
+    if (!Number.isFinite(n) || n <= 0) { toast.err('Enter a size in MB greater than zero'); return; }
+    if (n > uploadCeiling) { toast.err(`The maximum allowed is ${uploadCeiling} MB`); return; }
+    setSavingUpload(true);
+    try {
+      await api.put('/api/settings/uploads', { maxUploadMb: n });
+      toast.ok(`Upload limit set to ${Math.floor(n)} MB`);
+    } catch (err) { toast.err(err.message); }
+    setSavingUpload(false);
+  };
 
   const changePassword = async (e) => {
     e.preventDefault();
@@ -56,6 +85,35 @@ export default function Settings() {
             <div style={{ color: 'var(--muted)', fontSize: 14, marginTop: 4 }}>Preview of the selected font · 0123456789</div>
           </div>
         </Card>
+
+        {isAdmin && (
+          <Card>
+            <h3>File uploads</h3>
+            <p style={{ color: 'var(--muted)', fontSize: 14, marginTop: 6 }}>
+              The default size limit for every upload — student answers, task
+              attachments, highlight photos and app images. An individual
+              question can set its own limit instead.
+            </p>
+            <form onSubmit={saveUploadLimit} style={{ marginTop: 12 }}>
+              <Field label="Maximum upload size (MB)">
+                <Input
+                  type="number"
+                  min="1"
+                  max={uploadCeiling}
+                  value={maxUploadMb}
+                  onChange={(e) => setMaxUploadMb(e.target.value)}
+                />
+              </Field>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+                Up to {uploadCeiling} MB. Larger files are refused with a clear message
+                telling the uploader the limit.
+              </div>
+              <Button type="submit" variant="primary" disabled={savingUpload}>
+                {savingUpload ? 'Saving…' : 'Save upload limit'}
+              </Button>
+            </form>
+          </Card>
+        )}
 
         <Card>
           <h3 style={{ marginBottom: 6 }}>Password</h3>

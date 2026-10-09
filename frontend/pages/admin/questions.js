@@ -40,14 +40,19 @@ export default function AdminQuestions() {
   const [busy, setBusy] = useState(false);
   const [answersFor, setAnswersFor] = useState(null);
   const [answers, setAnswers] = useState([]);
+  // Site-wide upload defaults, shown as the placeholder on the per-question cap.
+  const [settings, setSettings] = useState({});
+  const defaultMaxMb = Number(settings.max_upload_mb) || 25;
+  const uploadCeiling = Number(settings.max_upload_mb_ceiling) || 200;
 
   const load = async () => {
-    const [q, s, t] = await Promise.all([
+    const [q, s, t, cfg] = await Promise.all([
       api.get(scoped('/api/questions', bootcampId)),
       api.get(scoped('/api/students?status=approved', bootcampId)),
       api.get(scoped('/api/teams', bootcampId)),
+      api.get('/api/settings').catch(() => ({})),
     ]);
-    setQuestions(q); setStudents(s); setTeams(t);
+    setQuestions(q); setStudents(s); setTeams(t); setSettings(cfg || {});
   };
   useEffect(() => { if (ok && bootcampId) load().catch((e) => toast.err(e.message)); }, [ok, bootcampId]);
 
@@ -76,6 +81,8 @@ export default function AdminQuestions() {
           title: it.title, description: it.description, input_type: it.input_type,
           audience: shared.audience, required: shared.required, bootcamp_id: bootcampId,
           targets: sharedTargets, batch_id: batchId,
+          // Only meaningful for a file question; blank means the global default.
+          max_upload_mb: it.input_type === 'file' ? (it.max_upload_mb || null) : null,
         });
       }
       setCreating(false);
@@ -184,7 +191,12 @@ export default function AdminQuestions() {
         <div className="desc">
           <Badge color="blue">{q.input_type}</Badge>{' '}
           <Badge color="purple">{AUD_LABEL[q.audience]}</Badge>{' '}
-          {q.required ? <Badge color="orange">required</Badge> : null}
+          {q.required ? <Badge color="orange">required</Badge> : null}{' '}
+          {q.input_type === 'file' && (
+            <Badge color="gray">
+              max {q.max_upload_mb || defaultMaxMb} MB{q.max_upload_mb ? '' : ' (default)'}
+            </Badge>
+          )}
         </div>
       </div>
       <Button size="sm" onClick={() => openAnswers(q)}>{q.answer_count} answer{q.answer_count === 1 ? '' : 's'}</Button>
@@ -246,6 +258,22 @@ export default function AdminQuestions() {
                   {INPUT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                 </Select>
               </Field>
+              {it.input_type === 'file' && (
+                <Field label="Max upload size (MB)">
+                  <Input
+                    type="number"
+                    min="1"
+                    max={uploadCeiling}
+                    placeholder={`Default: ${defaultMaxMb} MB`}
+                    value={it.max_upload_mb || ''}
+                    onChange={(e) => setItem(i, { max_upload_mb: e.target.value })}
+                  />
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                    Leave blank to use the site default ({defaultMaxMb} MB). Maximum {uploadCeiling} MB.
+                    Students see this limit and are stopped before uploading a larger file.
+                  </div>
+                </Field>
+              )}
             </div>
           ))}
           <Button onClick={addItem} style={{ marginBottom: 14 }}>+ Add question</Button>

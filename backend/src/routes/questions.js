@@ -3,6 +3,7 @@ const archiver = require('archiver');
 const { q } = require('../db');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { ah, HttpError } = require('../util');
+const { MAX_ALLOWED_MB, globalMaxUploadMb } = require('../uploadLimit');
 
 const router = express.Router();
 router.use(authRequired);
@@ -76,15 +77,27 @@ router.post(
   '/',
   requireRole('admin'),
   ah(async (req, res) => {
-    const { title, description, input_type, audience, required, targets, bootcamp_id, batch_id } = req.body || {};
+    const { title, description, input_type, audience, required, targets, bootcamp_id, batch_id,
+      max_upload_mb } = req.body || {};
     if (!bootcamp_id) throw new HttpError(400, 'bootcamp_id is required');
     if (!title) throw new HttpError(400, 'Title is required');
     if (!INPUT_TYPES.includes(input_type)) throw new HttpError(400, 'Invalid input_type');
     if (!AUDIENCES.includes(audience)) throw new HttpError(400, 'Invalid audience');
 
+    // Per-question upload cap, only meaningful for a file question. Null means
+    // "use the global setting". Clamped so a typo can't allow a huge upload.
+    let maxUploadMb = null;
+    if (input_type === 'file' && max_upload_mb !== undefined && max_upload_mb !== null && max_upload_mb !== '') {
+      const n = Number(max_upload_mb);
+      if (!Number.isFinite(n) || n <= 0) throw new HttpError(400, 'Max upload size must be a number of MB greater than zero');
+      if (n > MAX_ALLOWED_MB) throw new HttpError(400, `Max upload size cannot exceed ${MAX_ALLOWED_MB} MB`);
+      maxUploadMb = Math.floor(n);
+    }
+
     const r = await q(
-      `INSERT INTO questions (title, description, input_type, audience, required, bootcamp_id, batch_id) VALUES (?,?,?,?,?,?,?)`,
-      [title.trim(), description || null, input_type, audience, required ? 1 : 0, Number(bootcamp_id), batch_id ? String(batch_id).slice(0, 40) : null]
+      `INSERT INTO questions (title, description, input_type, audience, required, bootcamp_id, batch_id, max_upload_mb)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [title.trim(), description || null, input_type, audience, required ? 1 : 0, Number(bootcamp_id), batch_id ? String(batch_id).slice(0, 40) : null, maxUploadMb]
     );
     if (Array.isArray(targets)) {
       for (const t of targets) {
@@ -194,9 +207,17 @@ router.get(
     const spocTeamIds = spocRows.map((r) => r.id);
     const answers = await q(`SELECT * FROM answers WHERE student_id = ?`, [student.id]);
 
+    // Resolve each file question's effective cap once here, so the student UI
+    // can show the limit and reject an oversized file before uploading it.
+    const globalMb = await globalMaxUploadMb();
+
     const applicable = questions
       .filter((qq) => questionApplies(qq, targets, student, spocTeamIds))
-      .map((qq) => ({ ...qq, answer: answers.find((a) => a.question_id === qq.id) || null }));
+      .map((qq) => ({
+        ...qq,
+        answer: answers.find((a) => a.question_id === qq.id) || null,
+        effective_max_upload_mb: qq.input_type === 'file' ? (qq.max_upload_mb ?? globalMb) : null,
+      }));
     res.json(applicable);
   })
 );

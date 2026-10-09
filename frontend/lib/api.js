@@ -36,11 +36,18 @@ export const api = {
   post: (p, body) => request(p, { method: 'POST', body }),
   put: (p, body) => request(p, { method: 'PUT', body }),
   del: (p) => request(p, { method: 'DELETE' }),
-  upload: async (file) => {
+  // Upload a file. Pass a questionId to have the server apply that question's
+  // own size cap instead of the global one.
+  upload: async (file, questionId) => {
     const form = new FormData();
     form.append('file', file);
-    return request('/api/uploads', { method: 'POST', body: form, isForm: true });
+    const path = questionId ? `/api/uploads?question=${encodeURIComponent(questionId)}` : '/api/uploads';
+    return request(path, { method: 'POST', body: form, isForm: true });
   },
+  // The cap that applies to an upload, so the client can reject an oversized
+  // file before spending the user's bandwidth on it.
+  uploadLimit: (questionId) =>
+    request(questionId ? `/api/uploads/limit?question=${encodeURIComponent(questionId)}` : '/api/uploads/limit'),
   uploadTo: async (path, file) => {
     const form = new FormData();
     form.append('file', file);

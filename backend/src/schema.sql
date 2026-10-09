@@ -266,3 +266,6 @@ CREATE TABLE IF NOT EXISTS cohort_apps (
   INDEX idx_app_cohort (bootcamp_id, sort_order),
   CONSTRAINT fk_app_cohort FOREIGN KEY (bootcamp_id) REFERENCES bootcamps(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Per-question upload cap. NULL means "use the global max_upload_mb setting".
+-- Added to the questions table via ensureColumn() in db.js for existing DBs.

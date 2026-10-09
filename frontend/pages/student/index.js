@@ -4,6 +4,11 @@ import { api } from '../../lib/api';
 import Layout, { PageHead } from '../../components/Layout';
 import { Card, Button, Loading, useToast, Badge, Input, Textarea, Empty } from '../../components/UI';
 
+// One decimal place is enough to make "this file is too big" concrete.
+function formatMb(bytes) {
+  return (bytes / (1024 * 1024)).toFixed(1);
+}
+
 export default function StudentHome() {
   const { ok } = useRequireRole(['student']);
   const toast = useToast();
@@ -30,9 +35,21 @@ export default function StudentHome() {
 
   const onFile = async (qid, file) => {
     if (!file) return;
+
+    // Check the size before sending: uploading a 60 MB file only to be told it
+    // was rejected wastes the student's bandwidth, and on a phone that hurts.
+    const question = (questions || []).find((x) => x.id === qid);
+    const limitMb = question?.effective_max_upload_mb;
+    if (limitMb && file.size > limitMb * 1024 * 1024) {
+      toast.err(
+        `"${file.name}" is ${formatMb(file.size)} MB. The limit for this question is ${limitMb} MB.`
+      );
+      return;
+    }
+
     setBusy((b) => ({ ...b, [qid]: true }));
     try {
-      const res = await api.upload(file);
+      const res = await api.upload(file, qid);
       setVal(qid, { fileUrl: res.url, fileName: res.name });
       toast.ok('File uploaded — remember to Save');
     } catch (e) { toast.err(e.message); }
@@ -69,6 +86,11 @@ export default function StudentHome() {
           <div className="vstack">
             {v.fileUrl && <a href={v.fileUrl} target="_blank" rel="noreferrer">📎 {v.fileName || 'Current file'}</a>}
             <input type="file" onChange={(e) => onFile(q.id, e.target.files?.[0])} />
+            {q.effective_max_upload_mb && (
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                Maximum file size: {q.effective_max_upload_mb} MB
+              </div>
+            )}
           </div>
         );
       default:
