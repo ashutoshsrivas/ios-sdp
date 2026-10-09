@@ -44,6 +44,44 @@ export const api = {
     const path = questionId ? `/api/uploads?question=${encodeURIComponent(questionId)}` : '/api/uploads';
     return request(path, { method: 'POST', body: form, isForm: true });
   },
+  /**
+   * Upload with progress. fetch() cannot report upload progress at all, so
+   * this one case uses XMLHttpRequest: onProgress(percent, loaded, total) is
+   * called as the bytes go out. Resolves/rejects like the other helpers.
+   */
+  uploadWithProgress: (file, questionId, onProgress) =>
+    new Promise((resolve, reject) => {
+      const form = new FormData();
+      form.append('file', file);
+      const path = questionId ? `/api/uploads?question=${encodeURIComponent(questionId)}` : '/api/uploads';
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${BASE}${path}`);
+      const token = getToken();
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+      xhr.upload.onprogress = (e) => {
+        if (!e.lengthComputable || typeof onProgress !== 'function') return;
+        onProgress(Math.round((e.loaded / e.total) * 100), e.loaded, e.total);
+      };
+
+      xhr.onload = () => {
+        let data = null;
+        try { data = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch { data = null; }
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(data);
+        const err = new Error(data?.error || `Upload failed (${xhr.status})`);
+        err.status = xhr.status;
+        reject(err);
+      };
+      xhr.onerror = () => reject(new Error('Network error during upload'));
+      xhr.onabort = () => reject(Object.assign(new Error('Upload cancelled'), { aborted: true }));
+
+      // Returned so a caller can cancel a large upload in flight.
+      if (typeof onProgress === 'function') onProgress(0, 0, file.size);
+      xhr.send(form);
+      if (onProgress) onProgress.xhr = xhr;
+    }),
+
   // The cap that applies to an upload, so the client can reject an oversized
   // file before spending the user's bandwidth on it.
   uploadLimit: (questionId) =>

@@ -138,6 +138,19 @@ then reinstall, run `npm run build` in frontend (the box has 1.8 GB RAM and no s
   and the per-question override in the question builder. `/api/questions/mine` returns
   `effective_max_upload_mb` so students see the limit and are stopped client-side first;
   `GET /api/uploads/limit[?question=]` exposes it to any other caller.
+- **Resubmission**: `questions.allow_resubmission` (default 1, so existing questions keep
+  the old free-upsert behaviour). With it off, `POST /:id/answer` returns 403 once an
+  answer exists and the student UI shows the question as Final with inputs disabled.
+  With it on, replacing a file deletes the superseded S3 object (`deleteObject`) after
+  the new answer is stored, so resubmissions don't pile up in the bucket.
+- **Editing questions**: `PUT /api/questions/:id` edits one; `PUT /api/questions/batch/:batchId`
+  applies a submission's shared settings (audience, required, resubmission) to every
+  question in the batch. The batch route is declared first so "batch" is not read as an id.
+  `input_type` cannot change once answers exist — answers live in type-specific columns,
+  so switching would strand them; the API refuses and the UI disables the field.
+- **Upload progress**: `fetch` cannot report upload progress, so `api.uploadWithProgress()`
+  uses XMLHttpRequest and `upload.onprogress`. At 100% the bytes have only left the
+  browser — the server is still streaming to S3 — so `ProgressBar` shows "Finishing…".
 - **Reports**: `GET /api/reports?bootcamp=` (admin) returns the raw data. The analytics are
   computed in `pages/admin/reports.js`.
 

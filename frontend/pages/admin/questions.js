@@ -4,7 +4,7 @@ import { useBootcamp, scoped } from '../../lib/bootcamp';
 import { api } from '../../lib/api';
 import Layout, { PageHead } from '../../components/Layout';
 import {
-  Card, Button, Loading, useToast, Badge, Modal, Field, Input, Textarea, Select, Empty,
+  Card, Button, Loading, useToast, Badge, Modal, Field, Input, Textarea, Select, Empty, Switch,
 } from '../../components/UI';
 
 const INPUT_TYPES = ['text', 'textarea', 'number', 'file', 'date', 'url'];
@@ -35,9 +35,13 @@ export default function AdminQuestions() {
   const [teams, setTeams] = useState([]);
   const [creating, setCreating] = useState(false);
   const [items, setItems] = useState([blankItem()]); // one or more questions in this submission
-  const [shared, setShared] = useState({ audience: 'all_students', required: true }); // applies to all questions
+  const [shared, setShared] = useState({ audience: 'all_students', required: true, allow_resubmission: true }); // applies to all questions
   const [targets, setTargets] = useState([]); // ids
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(null);      // one question being edited
+  const [editForm, setEditForm] = useState({});
+  const [groupEditing, setGroupEditing] = useState(null); // a submission's shared settings
+  const [groupForm, setGroupForm] = useState({});
   const [answersFor, setAnswersFor] = useState(null);
   const [answers, setAnswers] = useState([]);
   // Site-wide upload defaults, shown as the placeholder on the per-question cap.
@@ -56,7 +60,7 @@ export default function AdminQuestions() {
   };
   useEffect(() => { if (ok && bootcampId) load().catch((e) => toast.err(e.message)); }, [ok, bootcampId]);
 
-  const openNew = () => { setItems([blankItem()]); setShared({ audience: 'all_students', required: true }); setTargets([]); setCreating(true); };
+  const openNew = () => { setItems([blankItem()]); setShared({ audience: 'all_students', required: true, allow_resubmission: true }); setTargets([]); setCreating(true); };
   const needsStudents = shared.audience === 'selected_students';
   const needsTeams = shared.audience === 'teams' || shared.audience === 'team_spoc';
   const toggleTarget = (id) => setTargets((t) => (t.includes(id) ? t.filter((x) => x !== id) : [...t, id]));
@@ -80,6 +84,7 @@ export default function AdminQuestions() {
         await api.post('/api/questions', {
           title: it.title, description: it.description, input_type: it.input_type,
           audience: shared.audience, required: shared.required, bootcamp_id: bootcampId,
+          allow_resubmission: shared.allow_resubmission,
           targets: sharedTargets, batch_id: batchId,
           // Only meaningful for a file question; blank means the global default.
           max_upload_mb: it.input_type === 'file' ? (it.max_upload_mb || null) : null,
@@ -181,6 +186,53 @@ export default function AdminQuestions() {
     groups[groupIndex.get(key)].push(qq);
   }
 
+  const openEdit = (qq) => {
+    setEditForm({
+      title: qq.title || '',
+      description: qq.description || '',
+      input_type: qq.input_type,
+      audience: qq.audience,
+      required: !!qq.required,
+      allow_resubmission: !!qq.allow_resubmission,
+      max_upload_mb: qq.max_upload_mb ?? '',
+    });
+    setEditing(qq);
+  };
+
+  const saveEdit = async () => {
+    if (!editForm.title.trim()) { toast.err('Title is required'); return; }
+    setBusy(true);
+    try {
+      await api.put(`/api/questions/${editing.id}`, editForm);
+      setEditing(null);
+      await load();
+      toast.ok('Question updated');
+    } catch (e) { toast.err(e.message); }
+    setBusy(false);
+  };
+
+  const openGroupEdit = (group) => {
+    const first = group[0];
+    setGroupForm({
+      audience: first.audience,
+      required: !!first.required,
+      allow_resubmission: !!first.allow_resubmission,
+    });
+    setGroupEditing(group);
+  };
+
+  const saveGroupEdit = async () => {
+    setBusy(true);
+    try {
+      // Shared settings live on every question in the batch.
+      await api.put(`/api/questions/batch/${groupEditing[0].batch_id}`, groupForm);
+      setGroupEditing(null);
+      await load();
+      toast.ok('Submission settings updated');
+    } catch (e) { toast.err(e.message); }
+    setBusy(false);
+  };
+
   const questionRow = (q, showCsv) => (
     <div className="row" key={q.id}>
       <div className="grow">
@@ -196,7 +248,10 @@ export default function AdminQuestions() {
             <Badge color="gray">
               max {q.max_upload_mb || defaultMaxMb} MB{q.max_upload_mb ? '' : ' (default)'}
             </Badge>
-          )}
+          )}{' '}
+          {q.allow_resubmission
+            ? <Badge color="green">resubmission allowed</Badge>
+            : <Badge color="red">answers final</Badge>}
         </div>
       </div>
       <Button size="sm" onClick={() => openAnswers(q)}>{q.answer_count} answer{q.answer_count === 1 ? '' : 's'}</Button>
@@ -204,6 +259,7 @@ export default function AdminQuestions() {
       {q.input_type === 'file' && (
         <Button size="sm" onClick={() => downloadZip(q)} disabled={!q.answer_count}>⤓ Files</Button>
       )}
+      <Button size="sm" onClick={() => openEdit(q)}>Edit</Button>
       <Button size="sm" variant="ghost" onClick={() => remove(q)}>Delete</Button>
     </div>
   );
@@ -228,7 +284,10 @@ export default function AdminQuestions() {
                 <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                   Submission · {group.length} questions
                 </span>
-                <Button size="sm" onClick={() => exportGroupCsv(group)} disabled={!group.some((g) => g.answer_count)}>⤓ CSV (all)</Button>
+                <span className="hstack">
+                  <Button size="sm" onClick={() => openGroupEdit(group)}>Settings</Button>
+                  <Button size="sm" onClick={() => exportGroupCsv(group)} disabled={!group.some((g) => g.answer_count)}>⤓ CSV (all)</Button>
+                </span>
               </div>
               <div className="list">{group.map((g) => questionRow(g, false))}</div>
             </Card>
@@ -289,6 +348,17 @@ export default function AdminQuestions() {
               <label className="hstack" style={{ fontSize: 14, cursor: 'pointer', alignItems: 'center', height: 38 }}>
                 <input type="checkbox" checked={!!shared.required} onChange={(e) => setShared({ ...shared, required: e.target.checked })} /> Required
               </label>
+              <label className="check" style={{ display: 'block', marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={!!shared.allow_resubmission}
+                  onChange={(e) => setShared({ ...shared, allow_resubmission: e.target.checked })}
+                /> Allow resubmission
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginLeft: 22 }}>
+                  Students can change their answer; a new file replaces the old one.
+                  Turn off to make the first submission final.
+                </span>
+              </label>
             </Field>
           </div>
 
@@ -316,6 +386,113 @@ export default function AdminQuestions() {
               </div>
             </Field>
           )}
+        </Modal>
+      )}
+
+      {editing && (
+        <Modal
+          title="Edit question"
+          onClose={() => setEditing(null)}
+          footer={
+            <>
+              <Button onClick={() => setEditing(null)}>Cancel</Button>
+              <Button variant="primary" onClick={saveEdit} disabled={busy}>
+                {busy ? 'Saving…' : 'Save'}
+              </Button>
+            </>
+          }
+        >
+          <Field label="Question / title">
+            <Input value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
+          </Field>
+          <Field label="Description (optional)">
+            <Textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+          </Field>
+          <Field label="Answer type">
+            <Select
+              value={editForm.input_type}
+              disabled={!!editing.answer_count}
+              onChange={(e) => setEditForm({ ...editForm, input_type: e.target.value })}
+            >
+              {INPUT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </Select>
+            {!!editing.answer_count && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                {editing.answer_count} answer{editing.answer_count === 1 ? ' has' : 's have'} been submitted,
+                so the answer type is locked — changing it would strand what students already sent.
+              </div>
+            )}
+          </Field>
+          <Field label="Audience">
+            <Select value={editForm.audience} onChange={(e) => setEditForm({ ...editForm, audience: e.target.value })}>
+              {AUDIENCES.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
+            </Select>
+          </Field>
+          {editForm.input_type === 'file' && (
+            <Field label="Max upload size (MB)">
+              <Input
+                type="number"
+                min="1"
+                max={uploadCeiling}
+                placeholder={`Default: ${defaultMaxMb} MB`}
+                value={editForm.max_upload_mb}
+                onChange={(e) => setEditForm({ ...editForm, max_upload_mb: e.target.value })}
+              />
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                Blank uses the site default ({defaultMaxMb} MB). Maximum {uploadCeiling} MB.
+              </div>
+            </Field>
+          )}
+          <Switch
+            checked={!!editForm.required}
+            onChange={(v) => setEditForm({ ...editForm, required: v })}
+            label="Required"
+          />
+          <Switch
+            checked={!!editForm.allow_resubmission}
+            onChange={(v) => setEditForm({ ...editForm, allow_resubmission: v })}
+            label="Allow resubmission — students can change their answer, and a new file replaces the old one"
+          />
+          {!editForm.allow_resubmission && (
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+              With this off, a student&apos;s first submission is final and they cannot edit it.
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {groupEditing && (
+        <Modal
+          title={`Submission settings · ${groupEditing.length} questions`}
+          onClose={() => setGroupEditing(null)}
+          footer={
+            <>
+              <Button onClick={() => setGroupEditing(null)}>Cancel</Button>
+              <Button variant="primary" onClick={saveGroupEdit} disabled={busy}>
+                {busy ? 'Saving…' : 'Apply to all'}
+              </Button>
+            </>
+          }
+        >
+          <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 12 }}>
+            These apply to every question in this submission. Edit a single question
+            to change just its title, type or upload limit.
+          </p>
+          <Field label="Audience">
+            <Select value={groupForm.audience} onChange={(e) => setGroupForm({ ...groupForm, audience: e.target.value })}>
+              {AUDIENCES.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
+            </Select>
+          </Field>
+          <Switch
+            checked={!!groupForm.required}
+            onChange={(v) => setGroupForm({ ...groupForm, required: v })}
+            label="Required"
+          />
+          <Switch
+            checked={!!groupForm.allow_resubmission}
+            onChange={(v) => setGroupForm({ ...groupForm, allow_resubmission: v })}
+            label="Allow resubmission for every question here"
+          />
         </Modal>
       )}
 

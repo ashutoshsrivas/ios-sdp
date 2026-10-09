@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRequireRole } from '../../lib/auth';
 import { api } from '../../lib/api';
 import Layout, { PageHead } from '../../components/Layout';
-import { Card, Button, Loading, useToast, Badge, Input, Textarea, Empty } from '../../components/UI';
+import { Card, Button, Loading, useToast, Badge, Input, Textarea, Empty, ProgressBar } from '../../components/UI';
 
 // One decimal place is enough to make "this file is too big" concrete.
 function formatMb(bytes) {
@@ -15,6 +15,7 @@ export default function StudentHome() {
   const [questions, setQuestions] = useState(null);
   const [values, setValues] = useState({}); // qid -> {value, file}
   const [busy, setBusy] = useState({});
+  const [progress, setProgress] = useState({}); // qid -> {percent, name}
 
   const load = async () => {
     const qs = await api.get('/api/questions/mine');
@@ -30,6 +31,9 @@ export default function StudentHome() {
     setValues(v);
   };
   useEffect(() => { if (ok) load().catch((e) => toast.err(e.message)); }, [ok]);
+
+  // Answered already, and the admin has turned resubmission off.
+  const locked = (q) => !q.allow_resubmission && !!q.answer;
 
   const setVal = (qid, patch) => setValues((s) => ({ ...s, [qid]: { ...s[qid], ...patch } }));
 
@@ -48,11 +52,15 @@ export default function StudentHome() {
     }
 
     setBusy((b) => ({ ...b, [qid]: true }));
+    setProgress((p) => ({ ...p, [qid]: { percent: 0, name: file.name } }));
     try {
-      const res = await api.upload(file, qid);
+      const res = await api.uploadWithProgress(file, qid, (percent) =>
+        setProgress((p) => ({ ...p, [qid]: { percent, name: file.name } }))
+      );
       setVal(qid, { fileUrl: res.url, fileName: res.name });
       toast.ok('File uploaded — remember to Save');
     } catch (e) { toast.err(e.message); }
+    setProgress((p) => { const n = { ...p }; delete n[qid]; return n; });
     setBusy((b) => ({ ...b, [qid]: false }));
   };
 
@@ -72,29 +80,42 @@ export default function StudentHome() {
 
   const renderInput = (q) => {
     const v = values[q.id] || {};
+    const isLocked = locked(q);
     switch (q.input_type) {
       case 'textarea':
-        return <Textarea value={v.value} onChange={(e) => setVal(q.id, { value: e.target.value })} />;
+        return <Textarea disabled={isLocked} value={v.value} onChange={(e) => setVal(q.id, { value: e.target.value })} />;
       case 'number':
         return <Input type="number" value={v.value} onChange={(e) => setVal(q.id, { value: e.target.value })} />;
       case 'date':
         return <Input type="date" value={v.value} onChange={(e) => setVal(q.id, { value: e.target.value })} />;
       case 'url':
-        return <Input type="url" placeholder="https://…" value={v.value} onChange={(e) => setVal(q.id, { value: e.target.value })} />;
+        return <Input type="url" disabled={isLocked} placeholder="https://…" value={v.value} onChange={(e) => setVal(q.id, { value: e.target.value })} />;
       case 'file':
         return (
           <div className="vstack">
             {v.fileUrl && <a href={v.fileUrl} target="_blank" rel="noreferrer">📎 {v.fileName || 'Current file'}</a>}
-            <input type="file" onChange={(e) => onFile(q.id, e.target.files?.[0])} />
-            {q.effective_max_upload_mb && (
+            {!locked(q) && (
+              <input type="file" disabled={!!busy[q.id]} onChange={(e) => onFile(q.id, e.target.files?.[0])} />
+            )}
+            {progress[q.id] && (
+              <ProgressBar percent={progress[q.id].percent} label={progress[q.id].name} />
+            )}
+            {locked(q) ? (
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                Maximum file size: {q.effective_max_upload_mb} MB
+                Submitted — this answer can no longer be changed.
               </div>
+            ) : (
+              q.effective_max_upload_mb && (
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Maximum file size: {q.effective_max_upload_mb} MB
+                  {v.fileUrl ? ' · uploading a new file replaces the current one' : ''}
+                </div>
+              )
             )}
           </div>
         );
       default:
-        return <Input value={v.value} onChange={(e) => setVal(q.id, { value: e.target.value })} />;
+        return <Input disabled={isLocked} value={v.value} onChange={(e) => setVal(q.id, { value: e.target.value })} />;
     }
   };
 
@@ -114,11 +135,16 @@ export default function StudentHome() {
           <Card key={q.id}>
             <div className="hstack" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
               <h3>{q.title}</h3>
-              {answered(q) ? <Badge color="green">Answered</Badge> : (q.required ? <Badge color="orange">Required</Badge> : null)}
+              <span>
+                {answered(q) ? <Badge color="green">Answered</Badge> : (q.required ? <Badge color="orange">Required</Badge> : null)}{' '}
+                {locked(q) && <Badge color="gray">Final</Badge>}
+              </span>
             </div>
             {q.description && <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 12 }}>{q.description}</p>}
             <div className="field">{renderInput(q)}</div>
-            <Button variant="primary" onClick={() => save(q)} disabled={busy[q.id]}>{busy[q.id] ? 'Saving…' : 'Save'}</Button>
+            <Button variant="primary" onClick={() => save(q)} disabled={busy[q.id] || locked(q)}>
+              {busy[q.id] ? 'Saving…' : locked(q) ? 'Submitted' : 'Save'}
+            </Button>
           </Card>
         ))
       )}

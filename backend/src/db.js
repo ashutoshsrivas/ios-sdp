@@ -95,6 +95,9 @@ async function migrate() {
   await ensureColumn('questions', 'batch_id', 'VARCHAR(40) NULL');
   // Per-question upload cap in MB; NULL falls back to the global setting.
   await ensureColumn('questions', 'max_upload_mb', 'INT NULL');
+  // Whether a student may change an answer after submitting. Defaults to 1 so
+  // existing questions keep today's behaviour (answers were a free upsert).
+  await ensureColumn('questions', 'allow_resubmission', 'TINYINT NOT NULL DEFAULT 1');
   await ensureColumn('certificates', 'verify_code', 'VARCHAR(40) NULL');
   await ensureColumn('certificates', 'revoked', 'TINYINT NOT NULL DEFAULT 0');
   // Public-website fields on a cohort. public_visible is deliberately separate

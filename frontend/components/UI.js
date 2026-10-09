@@ -129,3 +129,41 @@ export function Empty({ icon = '✨', title, subtitle }) {
 export function Loading() {
   return <div className="center-load"><div className="spinner" /></div>;
 }
+
+/**
+ * Upload progress. `percent` is 0-100; pass `label` for the filename.
+ *
+ * At 100% the bytes have left the browser but the server is still streaming
+ * them to S3, so the bar says "Finishing…" rather than claiming it's done —
+ * on a large file that gap is several seconds of apparent hang otherwise.
+ */
+export function ProgressBar({ percent = 0, label, bytes }) {
+  const pct = Math.max(0, Math.min(100, Math.round(percent)));
+  const done = pct >= 100;
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', gap: 10,
+        fontSize: 12, color: 'var(--muted)', marginBottom: 4,
+      }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {label || 'Uploading…'}
+        </span>
+        <span style={{ flexShrink: 0 }}>{done ? 'Finishing…' : `${pct}%`}{bytes ? ` · ${bytes}` : ''}</span>
+      </div>
+      <div
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        style={{ height: 6, borderRadius: 999, background: 'var(--fill-2, #ececf0)', overflow: 'hidden' }}
+      >
+        <div style={{
+          width: `${pct}%`, height: '100%', borderRadius: 999,
+          background: 'var(--accent, #007aff)',
+          transition: 'width 0.2s ease',
+        }} />
+      </div>
+    </div>
+  );
+}

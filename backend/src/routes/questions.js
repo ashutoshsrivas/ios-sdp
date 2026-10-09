@@ -4,6 +4,7 @@ const { q } = require('../db');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { ah, HttpError } = require('../util');
 const { MAX_ALLOWED_MB, globalMaxUploadMb } = require('../uploadLimit');
+const { deleteObject, keyFromUrl } = require('../s3');
 
 const router = express.Router();
 router.use(authRequired);
@@ -78,7 +79,7 @@ router.post(
   requireRole('admin'),
   ah(async (req, res) => {
     const { title, description, input_type, audience, required, targets, bootcamp_id, batch_id,
-      max_upload_mb } = req.body || {};
+      max_upload_mb, allow_resubmission } = req.body || {};
     if (!bootcamp_id) throw new HttpError(400, 'bootcamp_id is required');
     if (!title) throw new HttpError(400, 'Title is required');
     if (!INPUT_TYPES.includes(input_type)) throw new HttpError(400, 'Invalid input_type');
@@ -95,9 +96,10 @@ router.post(
     }
 
     const r = await q(
-      `INSERT INTO questions (title, description, input_type, audience, required, bootcamp_id, batch_id, max_upload_mb)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [title.trim(), description || null, input_type, audience, required ? 1 : 0, Number(bootcamp_id), batch_id ? String(batch_id).slice(0, 40) : null, maxUploadMb]
+      `INSERT INTO questions (title, description, input_type, audience, required, bootcamp_id, batch_id, max_upload_mb, allow_resubmission)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [title.trim(), description || null, input_type, audience, required ? 1 : 0, Number(bootcamp_id), batch_id ? String(batch_id).slice(0, 40) : null, maxUploadMb,
+       allow_resubmission === undefined ? 1 : (allow_resubmission ? 1 : 0)]
     );
     if (Array.isArray(targets)) {
       for (const t of targets) {
@@ -109,6 +111,118 @@ router.post(
       }
     }
     res.status(201).json({ id: r.insertId });
+  })
+);
+
+// Replace a question's audience targets with the given list.
+async function setTargets(questionId, targets) {
+  await q(`DELETE FROM question_targets WHERE question_id = ?`, [questionId]);
+  if (!Array.isArray(targets)) return;
+  for (const t of targets) {
+    if (!['student', 'team'].includes(t.ref_type)) continue;
+    await q(
+      `INSERT IGNORE INTO question_targets (question_id, ref_type, ref_id) VALUES (?,?,?)`,
+      [questionId, t.ref_type, Number(t.ref_id)]
+    );
+  }
+}
+
+// Validate and normalise a per-question upload cap.
+function parseMaxUploadMb(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) throw new HttpError(400, 'Max upload size must be a number of MB greater than zero');
+  if (n > MAX_ALLOWED_MB) throw new HttpError(400, `Max upload size cannot exceed ${MAX_ALLOWED_MB} MB`);
+  return Math.floor(n);
+}
+
+// PUT /api/questions/batch/:batchId  (admin) — the settings a submission's
+// questions share: audience, targets, required and resubmission.
+// Declared before /:id so "batch" is never read as an id.
+router.put(
+  '/batch/:batchId',
+  requireRole('admin'),
+  ah(async (req, res) => {
+    const batchId = String(req.params.batchId).slice(0, 40);
+    const rows = await q(`SELECT id FROM questions WHERE batch_id = ?`, [batchId]);
+    if (rows.length === 0) throw new HttpError(404, 'Submission not found');
+
+    const { audience, required, allow_resubmission, targets } = req.body || {};
+    const fields = [];
+    const params = [];
+    if (audience !== undefined) {
+      if (!AUDIENCES.includes(audience)) throw new HttpError(400, 'Invalid audience');
+      fields.push('audience = ?'); params.push(audience);
+    }
+    if (required !== undefined) { fields.push('required = ?'); params.push(required ? 1 : 0); }
+    if (allow_resubmission !== undefined) { fields.push('allow_resubmission = ?'); params.push(allow_resubmission ? 1 : 0); }
+
+    if (fields.length) {
+      await q(`UPDATE questions SET ${fields.join(', ')} WHERE batch_id = ?`, [...params, batchId]);
+    }
+    // Targets are per question, but a submission shares them, so apply to each.
+    if (targets !== undefined) {
+      for (const row of rows) await setTargets(row.id, targets);
+    }
+    res.json({ ok: true, updated: rows.length });
+  })
+);
+
+// PUT /api/questions/:id  (admin) — edit one question.
+router.put(
+  '/:id',
+  requireRole('admin'),
+  ah(async (req, res) => {
+    const id = Number(req.params.id);
+    const rows = await q(`SELECT * FROM questions WHERE id = ?`, [id]);
+    const question = rows[0];
+    if (!question) throw new HttpError(404, 'Question not found');
+
+    const { title, description, input_type, audience, required, allow_resubmission, max_upload_mb, targets } =
+      req.body || {};
+
+    const fields = [];
+    const params = [];
+
+    if (title !== undefined) {
+      if (!String(title).trim()) throw new HttpError(400, 'Title is required');
+      fields.push('title = ?'); params.push(String(title).trim());
+    }
+    if (description !== undefined) { fields.push('description = ?'); params.push(description || null); }
+
+    if (input_type !== undefined && input_type !== question.input_type) {
+      if (!INPUT_TYPES.includes(input_type)) throw new HttpError(400, 'Invalid input_type');
+      // Answers are stored in type-specific columns, so switching type would
+      // strand what students already submitted. Refuse rather than orphan it.
+      const [{ c }] = await q(`SELECT COUNT(*) AS c FROM answers WHERE question_id = ?`, [id]);
+      if (c > 0) {
+        throw new HttpError(
+          400,
+          `This question already has ${c} answer${c === 1 ? '' : 's'}, so its answer type can no longer be changed. Delete it and create a new one if the type must change.`
+        );
+      }
+      fields.push('input_type = ?'); params.push(input_type);
+    }
+
+    if (audience !== undefined) {
+      if (!AUDIENCES.includes(audience)) throw new HttpError(400, 'Invalid audience');
+      fields.push('audience = ?'); params.push(audience);
+    }
+    if (required !== undefined) { fields.push('required = ?'); params.push(required ? 1 : 0); }
+    if (allow_resubmission !== undefined) { fields.push('allow_resubmission = ?'); params.push(allow_resubmission ? 1 : 0); }
+
+    if (max_upload_mb !== undefined) {
+      const effectiveType = input_type ?? question.input_type;
+      fields.push('max_upload_mb = ?');
+      params.push(effectiveType === 'file' ? parseMaxUploadMb(max_upload_mb) : null);
+    }
+
+    if (fields.length) {
+      await q(`UPDATE questions SET ${fields.join(', ')} WHERE id = ?`, [...params, id]);
+    }
+    if (targets !== undefined) await setTargets(id, targets);
+
+    res.json({ ok: true });
   })
 );
 
@@ -241,6 +355,21 @@ router.post(
       throw new HttpError(403, 'This question is not assigned to you');
 
     const { value_text, value_number, file_url, file_name } = req.body || {};
+
+    // An answer is a free upsert only while resubmission is allowed. Once the
+    // admin turns it off, the first submission is final.
+    const existingRows = await q(
+      `SELECT id, file_url FROM answers WHERE question_id = ? AND student_id = ?`,
+      [qid, student.id]
+    );
+    const existing = existingRows[0];
+    if (existing && !question.allow_resubmission) {
+      throw new HttpError(
+        403,
+        'You have already submitted an answer to this question and resubmission is not allowed.'
+      );
+    }
+
     await q(
       `INSERT INTO answers (question_id, student_id, value_text, value_number, file_url, file_name)
        VALUES (?,?,?,?,?,?)
@@ -253,7 +382,15 @@ router.post(
         file_url || null, file_name || null,
       ]
     );
-    res.json({ ok: true });
+
+    // A replaced file would otherwise stay in the bucket forever. Delete the
+    // superseded object only after the new answer is safely stored, and only
+    // when it really changed.
+    if (existing?.file_url && file_url && existing.file_url !== file_url) {
+      await deleteObject(keyFromUrl(existing.file_url));
+    }
+
+    res.json({ ok: true, replaced: Boolean(existing) });
   })
 );
 

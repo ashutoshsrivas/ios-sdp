@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const config = require('./config');
 
@@ -91,10 +91,24 @@ function keyFromUrl(url) {
   }
 }
 
+// Deletes an object. Used when a student replaces a file answer: without it
+// every resubmission would leave the superseded file in the bucket forever.
+// Never throws — losing a replacement over a failed cleanup would be worse.
+async function deleteObject(key) {
+  if (!key) return false;
+  try {
+    await client.send(new DeleteObjectCommand({ Bucket: config.s3.bucket, Key: key }));
+    return true;
+  } catch (err) {
+    console.error('s3.deleteObject failed for', key, err.message);
+    return false;
+  }
+}
+
 // Returns a readable stream for an object (used to zip files).
 async function getObjectStream(key) {
   const res = await client.send(new GetObjectCommand({ Bucket: config.s3.bucket, Key: key }));
   return res.Body;
 }
 
-module.exports = { uploadBuffer, uploadFileStream, signedUrlFor, keyFromUrl, getObjectStream };
+module.exports = { uploadBuffer, uploadFileStream, deleteObject, signedUrlFor, keyFromUrl, getObjectStream };
