@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const fs = require('fs');
 const path = require('path');
 const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
@@ -42,6 +43,34 @@ async function uploadBuffer(buffer, originalName, mimeType, subfolder = '') {
   return { key, url };
 }
 
+// Uploads a file from disk by streaming it, and returns { key, url }.
+//
+// Preferred over uploadBuffer for anything large: the box has 1.8 GB of RAM
+// and no swap, so holding a 100 MB upload in memory (twice, once for multer's
+// buffer and once for the request body) risks OOM-killing the neighbouring
+// apps. ContentLength is required because a stream has no known length and
+// S3 will not accept it otherwise.
+async function uploadFileStream(filePath, originalName, mimeType, subfolder = '') {
+  const key = `${config.s3.prefix}${subfolder ? subfolder.replace(/\/$/, '') + '/' : ''}${safeName(
+    originalName
+  )}`;
+  const { size } = await fs.promises.stat(filePath);
+  const params = {
+    Bucket: config.s3.bucket,
+    Key: key,
+    Body: fs.createReadStream(filePath),
+    ContentLength: size,
+    ContentType: mimeType || 'application/octet-stream',
+  };
+  if (config.s3.acl) params.ACL = config.s3.acl;
+  await client.send(new PutObjectCommand(params));
+
+  const url = config.s3.publicBase
+    ? `${config.s3.publicBase.replace(/\/$/, '')}/${key}`
+    : `https://${config.s3.bucket}.s3.${config.s3.region}.amazonaws.com/${key}`;
+  return { key, url };
+}
+
 // For private buckets: generate a temporary signed URL.
 async function signedUrlFor(key, expiresIn = 3600) {
   return getSignedUrl(client, new GetObjectCommand({ Bucket: config.s3.bucket, Key: key }), {
@@ -68,4 +97,4 @@ async function getObjectStream(key) {
   return res.Body;
 }
 
-module.exports = { uploadBuffer, signedUrlFor, keyFromUrl, getObjectStream };
+module.exports = { uploadBuffer, uploadFileStream, signedUrlFor, keyFromUrl, getObjectStream };

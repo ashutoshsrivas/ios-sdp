@@ -1,10 +1,10 @@
+const os = require('os');
 const multer = require('multer');
 const { q } = require('./db');
 const { HttpError } = require('./util');
 
-// Used when no admin setting exists yet. Matches the previous hardcoded cap,
-// so behaviour is unchanged until someone edits the setting.
-const DEFAULT_MAX_UPLOAD_MB = 25;
+// Used when no admin setting exists yet. Admins can change it in Settings.
+const DEFAULT_MAX_UPLOAD_MB = 100;
 
 // Hard ceiling an admin can set, to stop a typo ("2000") from letting a
 // multi-GB file into memory and OOM-killing the box (1.8 GB RAM, no swap).
@@ -60,13 +60,21 @@ function singleFileWithLimit(field = 'file', { questionFrom } = {}) {
         return next(new HttpError(413, `That file is too large. The limit is ${mb} MB.`));
       }
 
+      // Disk, not memory: at a 100 MB cap a memory buffer would hold the whole
+      // file in RAM (on top of the request body) on a 1.8 GB box shared with
+      // five other apps. The handler streams the temp file to S3 and unlinks it.
       const handler = multer({
-        storage: multer.memoryStorage(),
+        storage: multer.diskStorage({ destination: os.tmpdir() }),
         limits: { fileSize: bytes, files: 1 },
       }).single(field);
 
       handler(req, res, (err) => {
         if (!err) return next();
+        // multer writes until it hits the cap, so an over-limit upload leaves a
+        // partial temp file behind. Remove it or /tmp fills up over time.
+        if (req.file && req.file.path) {
+          require('fs').promises.unlink(req.file.path).catch(() => {});
+        }
         if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
           // Without this the error reaches the handler with no .status and is
           // reported to the user as a generic 500 "Server error".

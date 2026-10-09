@@ -1,6 +1,7 @@
+const fs = require('fs');
 const express = require('express');
 const { authRequired } = require('../middleware/auth');
-const { uploadBuffer } = require('../s3');
+const { uploadFileStream } = require('../s3');
 const { ah, HttpError } = require('../util');
 const { singleFileWithLimit, globalMaxUploadMb, maxUploadMbFor } = require('../uploadLimit');
 
@@ -28,13 +29,18 @@ router.post(
   ah(async (req, res) => {
     if (!req.file) throw new HttpError(400, 'No file provided (field name must be "file")');
     const subfolder = req.user.role === 'student' ? `answers` : 'misc';
-    const { key, url } = await uploadBuffer(
-      req.file.buffer,
-      req.file.originalname,
-      req.file.mimetype,
-      subfolder
-    );
-    res.json({ url, key, name: req.file.originalname, maxUploadMb: req.maxUploadMb });
+    try {
+      const { key, url } = await uploadFileStream(
+        req.file.path,
+        req.file.originalname,
+        req.file.mimetype,
+        subfolder
+      );
+      res.json({ url, key, name: req.file.originalname, maxUploadMb: req.maxUploadMb });
+    } finally {
+      // Always remove the temp file, including when the S3 put throws.
+      await fs.promises.unlink(req.file.path).catch(() => {});
+    }
   })
 );
 

@@ -22,7 +22,7 @@ export default function Settings() {
     if (!ok || !isAdmin) return;
     api.get('/api/settings')
       .then((cfg) => {
-        setMaxUploadMb(String(cfg?.max_upload_mb ?? 25));
+        setMaxUploadMb(String(cfg?.max_upload_mb ?? 100));
         setUploadCeiling(Number(cfg?.max_upload_mb_ceiling) || 200);
       })
       .catch(() => {});

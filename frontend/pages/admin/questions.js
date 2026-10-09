@@ -42,7 +42,7 @@ export default function AdminQuestions() {
   const [answers, setAnswers] = useState([]);
   // Site-wide upload defaults, shown as the placeholder on the per-question cap.
   const [settings, setSettings] = useState({});
-  const defaultMaxMb = Number(settings.max_upload_mb) || 25;
+  const defaultMaxMb = Number(settings.max_upload_mb) || 100;
   const uploadCeiling = Number(settings.max_upload_mb_ceiling) || 200;
 
   const load = async () => {

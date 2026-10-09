@@ -133,7 +133,7 @@ then reinstall, run `npm run build` in frontend (the box has 1.8 GB RAM and no s
   **client-side** in `components/Certificate.js` (canvas + `qrcode`, bulk export via `jspdf`/`jszip`).
   `GET /api/certificates/verify/:code` is public.
 - **Upload size limits**: the cap is the question's `max_upload_mb` when set, else the
-  `max_upload_mb` row in `settings` (default 25 MB, hard ceiling 200 MB so a typo can't
+  `max_upload_mb` row in `settings` (default 100 MB, hard ceiling 200 MB so a typo can't
   let a multi-GB file into memory on a 1.8 GB box). Admins set the default in Settings
   and the per-question override in the question builder. `/api/questions/mine` returns
   `effective_max_upload_mb` so students see the limit and are stopped client-side first;
