@@ -41,6 +41,7 @@ async function main() {
   app.use('/api/certificates', require('./routes/certificates'));
   app.use('/api/highlights', require('./routes/highlights'));
   app.use('/api/cohort-apps', require('./routes/cohortApps'));
+  app.use('/api/designs', require('./routes/designs'));
 
   // 404
   app.use((req, res) => res.status(404).json({ error: 'Not found' }));

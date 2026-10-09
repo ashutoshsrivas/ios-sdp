@@ -24,3 +24,4 @@ backend/chat-uploads/
 backend/cert-uploads/
 
 # Dependencies are handled by package-specific .gitignore files
+backend/design-uploads/

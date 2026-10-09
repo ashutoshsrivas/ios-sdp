@@ -28,6 +28,7 @@ const NAV = {
       { href: '/admin/questions', label: 'Submissions', icon: 'chat' },
       { href: '/admin/reports', label: 'Result & remarks', icon: 'chart' },
       { href: '/admin/certificates', label: 'Certificates', icon: 'award' },
+      { href: '/admin/designs', label: 'Designs', icon: 'layers' },
     ] },
     { section: 'People', items: [
       { href: '/admin/users', label: 'Users', icon: 'person' },
@@ -39,6 +40,7 @@ const NAV = {
       { href: '/mentor', label: 'Teams', icon: 'users' },
       { href: '/mentor/assess', label: 'Assessment', icon: 'star' },
       { href: '/mentor/tasks', label: 'Task Feedback', icon: 'chat' },
+      { href: '/admin/designs', label: 'Designs', icon: 'layers' },
     ] },
   ],
   volunteer: [
@@ -52,6 +54,7 @@ const NAV = {
       { href: '/student', label: 'My Submissions', icon: 'inbox' },
       { href: '/student/tasks', label: 'Tasks & Feedbacks', icon: 'check' },
       { href: '/student/chat', label: 'Team Chat', icon: 'chat' },
+      { href: '/student/designs', label: 'Designs', icon: 'layers' },
       { href: '/student/certificate', label: 'My Certificate', icon: 'award' },
     ] },
   ],

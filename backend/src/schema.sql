@@ -280,3 +280,45 @@ CREATE TABLE IF NOT EXISTS user_permissions (
   PRIMARY KEY (user_id, permission),
   CONSTRAINT fk_perm_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- Designs: a mentor/admin uploads a background image and places text areas on
+-- it; students (or teams) fill those areas in and save. Backgrounds live on
+-- local disk and are served same-origin so the client canvas can export a PNG
+-- without cross-origin tainting — the same constraint as certificates.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS designs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  bootcamp_id INT NOT NULL,
+  title VARCHAR(190) NOT NULL,
+  description TEXT NULL,
+  background_path VARCHAR(255) NOT NULL,
+  width INT NULL,
+  height INT NULL,
+  fields JSON NULL,
+  submit_as ENUM('student','team') NOT NULL DEFAULT 'student',
+  assigned TINYINT NOT NULL DEFAULT 0,
+  created_by INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_design_cohort (bootcamp_id, assigned),
+  CONSTRAINT fk_design_cohort FOREIGN KEY (bootcamp_id) REFERENCES bootcamps(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- One filled-in copy per student, or per team when submit_as='team'.
+-- MySQL allows repeated NULLs in a unique key, so the two keys coexist:
+-- a student submission has team_id NULL and vice versa.
+CREATE TABLE IF NOT EXISTS design_submissions (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  design_id INT NOT NULL,
+  student_id INT NULL,
+  team_id INT NULL,
+  values_json JSON NULL,
+  updated_by INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_design_student (design_id, student_id),
+  UNIQUE KEY uniq_design_team (design_id, team_id),
+  CONSTRAINT fk_ds_design FOREIGN KEY (design_id) REFERENCES designs(id) ON DELETE CASCADE,
+  CONSTRAINT fk_ds_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+  CONSTRAINT fk_ds_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

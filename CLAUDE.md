@@ -160,6 +160,18 @@ then reinstall, run `npm run build` in frontend (the box has 1.8 GB RAM and no s
   JWT (tokens last 7 days, so a revoked right would otherwise stay usable for a week);
   and `permissionsFor()` returns [] for any non-grantable role, so demoting a mentor to
   student cannot leave stale grants live. Admin UI is Users → Access.
+- **Designs** (`routes/designs.js`): a mentor/admin uploads a background, drags text areas
+  onto it and assigns it to a cohort; students fill the areas in and save. Same shape as
+  certificates and for the same reason — backgrounds live on local disk
+  (`backend/design-uploads/`, `DESIGN_UPLOAD_DIR`) and are served **same-origin without
+  auth** by `/api/designs/bg/:file`, because an S3 URL would taint the canvas and break
+  every download. Field positions are percentages, so one layout renders at any size.
+  `submit_as` is per student or per team and locks once submissions exist (the two key on
+  different columns). Layout is clamped server-side by `cleanFields()`, and on submit only
+  keys the design defines are stored, each capped at its own `maxLength`.
+  Rendering is client-side in `components/DesignCanvas.js` (`wrapText` handles multiline,
+  unlike the certificate renderer's single-line fillText); download is PNG per submission
+  or a JSZip of all of them.
 - **Reports**: `GET /api/reports?bootcamp=` (admin) returns the raw data. The analytics are
   computed in `pages/admin/reports.js`.
 
