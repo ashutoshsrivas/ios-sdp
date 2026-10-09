@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { useRequireRole } from '../../lib/auth';
 import { api } from '../../lib/api';
 import Layout, { PageHead } from '../../components/Layout';
-import { Card, Button, Loading, useToast, Badge, Field, Textarea, Empty } from '../../components/UI';
-import DesignCanvas, { renderToDataUrl } from '../../components/DesignCanvas';
+import { Card, Button, Loading, useToast, Badge, Empty } from '../../components/UI';
+import { renderToDataUrl } from '../../components/DesignCanvas';
+import DesignFill from '../../components/DesignFill';
 
 const safeName = (s) => String(s || 'design').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
 
@@ -79,50 +80,41 @@ export default function StudentDesigns() {
             {d.blocked ? (
               <Empty icon="👥" title={d.blocked} />
             ) : (
-              <div className="grid cols-2" style={{ alignItems: 'start', gap: 18 }}>
-                {/* Live preview — exactly what downloads. */}
-                <div style={{ border: '1px solid var(--sep,#e5e5ea)', borderRadius: 10, overflow: 'hidden' }}>
-                  <DesignCanvas design={d} values={values[d.id] || {}} showPlaceholders />
-                </div>
-
-                <div>
-                  {(d.fields || []).map((f) => {
-                    const text = values[d.id]?.[f.key] || '';
-                    return (
-                      <Field key={f.key} label={`${f.label}${f.required ? ' *' : ''}`}>
-                        <Textarea
-                          rows={3}
-                          maxLength={f.maxLength}
-                          placeholder={f.placeholder}
-                          value={text}
-                          onChange={(e) => setVal(d.id, f.key, e.target.value)}
-                        />
-                        <div style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'right' }}>
-                          {text.length}/{f.maxLength}
-                        </div>
-                      </Field>
-                    );
-                  })}
-
-                  {(d.fields || []).length === 0 && (
-                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>
-                      This design has no text areas to fill in yet.
-                    </div>
-                  )}
-
-                  <div className="hstack" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                    <Button variant="primary" onClick={() => save(d)} disabled={busy[d.id]}>
-                      {busy[d.id] ? 'Saving…' : 'Save'}
-                    </Button>
-                    <Button onClick={() => download(d)}>⤓ Download PNG</Button>
+              <>
+                {(d.fields || []).length === 0 ? (
+                  <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>
+                    This design has no text areas to fill in yet.
                   </div>
-                  {d.submission && (
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-                      Last saved {new Date(d.submission.updated_at).toLocaleString('en-IN')}
-                    </div>
+                ) : (
+                  <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 10 }}>
+                    Type straight onto the design. Text shrinks automatically so it always fits its box.
+                  </div>
+                )}
+
+                {/* Type directly on the artwork, in place. */}
+                <DesignFill
+                  design={d}
+                  values={values[d.id] || {}}
+                  onChange={(key, text) => setVal(d.id, key, text)}
+                />
+
+                <div className="hstack" style={{ gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                  <Button variant="primary" onClick={() => save(d)} disabled={busy[d.id]}>
+                    {busy[d.id] ? 'Saving…' : 'Save'}
+                  </Button>
+                  <Button onClick={() => download(d)}>⤓ Download PNG</Button>
+                  {(d.fields || []).some((f) => f.required) && (
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      Required: {d.fields.filter((f) => f.required).map((f) => f.label).join(', ')}
+                    </span>
                   )}
                 </div>
-              </div>
+                {d.submission && (
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                    Last saved {new Date(d.submission.updated_at).toLocaleString('en-IN')}
+                  </div>
+                )}
+              </>
             )}
           </Card>
         ))

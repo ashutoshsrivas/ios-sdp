@@ -30,6 +30,44 @@ export function wrapText(ctx, text, maxWidth) {
   return lines;
 }
 
+/**
+ * The largest font size at or below the field's own that still fits the text
+ * inside its box. Students type as much as they like and the text shrinks to
+ * fit rather than spilling over the artwork.
+ *
+ * Shared by the canvas renderer and the on-design editor so what a student
+ * types looks exactly like what downloads.
+ */
+export function fitFontSize(ctx, text, f, boxW, boxH) {
+  const base = f.fontSize;
+  if (!text) return base;
+  const MIN = 7;
+  const fits = (size) => {
+    ctx.font = `${f.bold ? '700' : '400'} ${size}px ${f.fontFamily}`;
+    const lines = wrapText(ctx, text, boxW);
+    return lines.length * size * f.lineHeight <= boxH;
+  };
+  if (fits(base)) return base;
+  // Binary search rather than stepping down one px at a time: this runs on
+  // every keystroke, for every field.
+  let lo = MIN;
+  let hi = base;
+  while (hi - lo > 0.5) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) lo = mid; else hi = mid;
+  }
+  return Math.max(MIN, Math.floor(lo * 2) / 2);
+}
+
+// A context used only for measuring, so callers don't each make one.
+let measureCtx = null;
+export function getMeasureContext() {
+  if (!measureCtx && typeof document !== 'undefined') {
+    measureCtx = document.createElement('canvas').getContext('2d');
+  }
+  return measureCtx;
+}
+
 export function drawDesign(canvas, img, design, values, opts = {}) {
   const w = design.width || img.naturalWidth || 1200;
   const h = design.height || img.naturalHeight || 850;
@@ -49,7 +87,9 @@ export function drawDesign(canvas, img, design, values, opts = {}) {
     const boxX = (f.x / 100) * w;
     const boxY = (f.y / 100) * h;
     const boxW = (f.w / 100) * w;
-    const size = f.fontSize;
+    const boxH = (f.h / 100) * h;
+    // Shrink to fit the box rather than overflowing the artwork.
+    const size = fitFontSize(ctx, shown, f, boxW, boxH);
 
     ctx.font = `${f.bold ? '700' : '400'} ${size}px ${f.fontFamily}`;
     ctx.fillStyle = text ? f.color : (opts.placeholderColor || 'rgba(0,0,0,0.35)');
@@ -61,8 +101,13 @@ export function drawDesign(canvas, img, design, values, opts = {}) {
     // textAlign is relative to this anchor, so it shifts with the alignment.
     const anchorX = f.align === 'center' ? boxX + boxW / 2 : f.align === 'right' ? boxX + boxW : boxX;
 
+    // A CSS line box puts half the leading ABOVE the glyphs, but canvas
+    // textBaseline:'top' starts them at the very top. Without this offset the
+    // downloaded PNG sits higher than the text the student typed in place.
+    const halfLeading = (size * (f.lineHeight - 1)) / 2;
+
     lines.forEach((line, i) => {
-      ctx.fillText(line, anchorX, boxY + i * lineH);
+      ctx.fillText(line, anchorX, boxY + halfLeading + i * lineH);
     });
   }
   return canvas;
