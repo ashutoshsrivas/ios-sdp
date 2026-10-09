@@ -106,6 +106,8 @@ async function migrate() {
   await ensureColumn('bootcamps', 'public_slug', 'VARCHAR(80) NULL');
   await ensureColumn('bootcamps', 'tagline', 'VARCHAR(255) NULL');
   await ensureColumn('bootcamps', 'sort_order', 'INT NULL');
+  // Banner image for the cohort's public page.
+  await ensureColumn('bootcamps', 'image_url', 'VARCHAR(1024) NULL');
   await ensureUniqueIndex('bootcamps', 'uniq_bootcamp_slug', 'public_slug');
   // Allow comment-only rubric scores (a mentor may leave a comment without a number).
   await ensureNullable('rubric_scores', 'score', 'DECIMAL(6,2) NULL');

@@ -2,7 +2,7 @@ const express = require('express');
 const { q } = require('../db');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { ah, HttpError } = require('../util');
-const { cleanPlain } = require('../sanitize');
+const { cleanPlain, cleanUrl } = require('../sanitize');
 
 const router = express.Router();
 router.use(authRequired);
@@ -73,8 +73,8 @@ router.put(
     const id = Number(req.params.id);
     const rows = await q(`SELECT * FROM bootcamps WHERE id = ?`, [id]);
     if (!rows[0]) throw new HttpError(404, 'Bootcamp not found');
-    const { name, description, status, registration_open, public_visible, public_slug, tagline, sort_order } =
-      req.body || {};
+    const { name, description, status, registration_open, public_visible, public_slug, tagline, sort_order,
+      image_url } = req.body || {};
     const fields = [];
     const params = [];
     if (name !== undefined) { fields.push('name = ?'); params.push(name.trim()); }
@@ -84,6 +84,7 @@ router.put(
     // Public-website fields. public_visible is what puts a cohort in the site nav.
     if (public_visible !== undefined) { fields.push('public_visible = ?'); params.push(public_visible ? 1 : 0); }
     if (tagline !== undefined) { fields.push('tagline = ?'); params.push(cleanPlain(tagline)); }
+    if (image_url !== undefined) { fields.push('image_url = ?'); params.push(cleanUrl(image_url)); }
     if (sort_order !== undefined) {
       fields.push('sort_order = ?');
       params.push(sort_order === null || sort_order === '' ? null : Number(sort_order));

@@ -70,7 +70,8 @@ router.put(
     const rows = await q(`SELECT id FROM cohort_apps WHERE id = ?`, [id]);
     if (!rows[0]) throw new HttpError(404, 'App not found');
 
-    const { title, description, hero_image_url, link_url, modal_html, published, sort_order } = req.body || {};
+    const { title, description, hero_image_url, link_url, modal_html, published, sort_order,
+      bootcamp_id } = req.body || {};
     const fields = [];
     const params = [];
 
@@ -78,6 +79,15 @@ router.put(
       const t = cleanPlain(title);
       if (!t) throw new HttpError(400, 'Title cannot be empty');
       fields.push('title = ?'); params.push(t);
+    }
+
+    // Reassigning an app moves it to that cohort's public page.
+    if (bootcamp_id !== undefined) {
+      const target = Number(bootcamp_id);
+      if (!target) throw new HttpError(400, 'Invalid cohort');
+      const exists = await q(`SELECT id FROM bootcamps WHERE id = ?`, [target]);
+      if (!exists[0]) throw new HttpError(404, 'Cohort not found');
+      fields.push('bootcamp_id = ?'); params.push(target);
     }
     if (description !== undefined) { fields.push('description = ?'); params.push(cleanRichText(description)); }
     if (hero_image_url !== undefined) { fields.push('hero_image_url = ?'); params.push(cleanUrl(hero_image_url)); }
@@ -106,6 +116,40 @@ router.delete(
     if (!rows[0]) throw new HttpError(404, 'App not found');
     await q(`DELETE FROM cohort_apps WHERE id = ?`, [id]);
     res.json({ ok: true });
+  })
+);
+
+// GET /api/cohort-apps/cohorts — cohorts a website manager can publish to.
+// They need the list to pick one, but not the full admin cohort payload.
+router.get(
+  '/cohorts',
+  requirePermission('website.apps'),
+  ah(async (_req, res) => {
+    const rows = await q(
+      `SELECT id, name, tagline, image_url, public_visible, public_slug
+       FROM bootcamps ORDER BY COALESCE(sort_order, 999999), id`
+    );
+    res.json(rows);
+  })
+);
+
+// PUT /api/cohort-apps/cohorts/:id/image  { image_url }
+// Deliberately narrow: website.apps grants control of the cohort's banner and
+// nothing else. The full PUT /api/bootcamps/:id also changes registration,
+// status and name, which is admin business.
+router.put(
+  '/cohorts/:id/image',
+  requirePermission('website.apps'),
+  ah(async (req, res) => {
+    const id = Number(req.params.id);
+    const rows = await q(`SELECT id FROM bootcamps WHERE id = ?`, [id]);
+    if (!rows[0]) throw new HttpError(404, 'Cohort not found');
+
+    const url = req.body?.image_url ? cleanUrl(req.body.image_url) : null;
+    if (req.body?.image_url && !url) throw new HttpError(400, 'Image must be a valid http(s) URL');
+
+    await q(`UPDATE bootcamps SET image_url = ? WHERE id = ?`, [url, id]);
+    res.json({ ok: true, image_url: url });
   })
 );
 

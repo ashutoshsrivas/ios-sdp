@@ -32,7 +32,7 @@ function slugFor(row) {
 
 async function visibleCohorts() {
   const rows = await q(
-    `SELECT id, name, tagline, public_slug, sort_order
+    `SELECT id, name, tagline, image_url, public_slug, sort_order
      FROM bootcamps
      WHERE public_visible = 1
      ORDER BY COALESCE(sort_order, 999999), id`
@@ -41,6 +41,7 @@ async function visibleCohorts() {
     id: r.id,
     name: r.name,
     tagline: r.tagline,
+    image: r.image_url,
     slug: slugFor(r),
   }));
 }

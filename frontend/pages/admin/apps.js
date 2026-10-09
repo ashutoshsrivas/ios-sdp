@@ -4,12 +4,11 @@ import { useBootcamp } from '../../lib/bootcamp';
 import { api } from '../../lib/api';
 import Layout, { PageHead } from '../../components/Layout';
 import {
-  Card, Button, Loading, useToast, Badge, Modal, Field, Input, Textarea, Empty, Switch,
-} from '../../components/UI';
+  Card, Button, Loading, useToast, Badge, Modal, Field, Input, Textarea, Empty, Switch, ProgressBar } from '../../components/UI';
 
 const BLANK = {
   title: '', description: '', hero_image_url: '', link_url: '',
-  modal_html: '', published: true, sort_order: '',
+  modal_html: '', published: true, sort_order: '', bootcamp_id: '',
 };
 
 export default function AdminApps() {
@@ -23,6 +22,10 @@ export default function AdminApps() {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [useCustomModal, setUseCustomModal] = useState(false);
+  // Full cohort list for the picker — an app can be published to any cohort,
+  // not only whichever one the sidebar happens to have selected.
+  const [cohorts, setCohorts] = useState([]);
+  const [bannerBusy, setBannerBusy] = useState(false);
 
   const cohort = bootcamps?.find((b) => b.id === bootcampId);
 
@@ -33,7 +36,40 @@ export default function AdminApps() {
   };
   useEffect(() => { if (ok) load(); }, [ok, bootcampId]);
 
-  const openNew = () => { setForm(BLANK); setUseCustomModal(false); setEditing({}); };
+  const loadCohorts = async () => {
+    try { setCohorts(await api.get('/api/cohort-apps/cohorts')); }
+    catch { /* picker falls back to the sidebar cohort */ }
+  };
+  useEffect(() => { if (ok) loadCohorts(); }, [ok]);
+
+  const cohortRow = cohorts.find((c) => c.id === bootcampId);
+
+  // Banner for the cohort's public page. Narrow endpoint — website.apps does
+  // not grant editing a cohort's name, status or registration.
+  const uploadBanner = async (file) => {
+    if (!file || !bootcampId) return;
+    if (!file.type.startsWith('image/')) { toast.err('Please choose an image file'); return; }
+    setBannerBusy(true);
+    try {
+      const up = await api.uploadWithProgress(file, null, () => {});
+      await api.put(`/api/cohort-apps/cohorts/${bootcampId}/image`, { image_url: up.url });
+      await loadCohorts();
+      toast.ok('Cohort image updated');
+    } catch (e) { toast.err(e.message); }
+    setBannerBusy(false);
+  };
+
+  const removeBanner = async () => {
+    setBannerBusy(true);
+    try {
+      await api.put(`/api/cohort-apps/cohorts/${bootcampId}/image`, { image_url: null });
+      await loadCohorts();
+      toast.show('Cohort image removed');
+    } catch (e) { toast.err(e.message); }
+    setBannerBusy(false);
+  };
+
+  const openNew = () => { setForm({ ...BLANK, bootcamp_id: bootcampId || '' }); setUseCustomModal(false); setEditing({}); };
   const openEdit = (a) => {
     setForm({
       title: a.title || '',
@@ -43,6 +79,7 @@ export default function AdminApps() {
       modal_html: a.modal_html || '',
       published: !!a.published,
       sort_order: a.sort_order ?? '',
+      bootcamp_id: a.bootcamp_id ?? bootcampId,
     });
     setUseCustomModal(!!a.modal_html);
     setEditing(a);
@@ -54,9 +91,21 @@ export default function AdminApps() {
     try {
       // Clearing the toggle clears the stored HTML, so "Know more" falls back
       // to the description rather than silently keeping an old custom modal.
-      const payload = { ...form, modal_html: useCustomModal ? form.modal_html : '' };
+      const targetCohort = Number(form.bootcamp_id) || bootcampId;
+      const payload = {
+        ...form,
+        bootcamp_id: targetCohort,
+        modal_html: useCustomModal ? form.modal_html : '',
+      };
       if (editing.id) { await api.put(`/api/cohort-apps/${editing.id}`, payload); toast.ok('App updated'); }
-      else { await api.post('/api/cohort-apps', { ...payload, bootcamp_id: bootcampId }); toast.ok('App added'); }
+      else { await api.post('/api/cohort-apps', payload); toast.ok('App added'); }
+
+      // Saving into another cohort would otherwise look like the app vanished,
+      // because this list only shows the cohort selected in the sidebar.
+      if (targetCohort !== bootcampId) {
+        const name = cohorts.find((c) => c.id === targetCohort)?.name || 'that cohort';
+        toast.show(`Saved to ${name} — switch cohort in the sidebar to see it`);
+      }
       setEditing(null);
       await load();
     } catch (e) { toast.err(e.message); }
@@ -99,6 +148,46 @@ export default function AdminApps() {
         }
         actions={bootcampId ? <Button variant="primary" onClick={openNew}>+ Add App</Button> : null}
       />
+
+      {bootcampId && (
+        <Card style={{ marginBottom: 14 }}>
+          <div className="hstack" style={{ gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            {cohortRow?.image_url ? (
+              <img
+                src={cohortRow.image_url}
+                alt=""
+                style={{ width: 160, height: 90, objectFit: 'cover', borderRadius: 10, flexShrink: 0 }}
+              />
+            ) : (
+              <div style={{
+                width: 160, height: 90, borderRadius: 10, flexShrink: 0,
+                background: 'var(--fill-2, #f1f1f4)', display: 'grid', placeItems: 'center', fontSize: 26,
+              }}>🖼</div>
+            )}
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <strong>Cohort image</strong>
+              <div style={{ color: 'var(--muted)', fontSize: 13.5, marginTop: 4 }}>
+                The banner at the top of {cohortRow?.name || 'this cohort'}&apos;s page on the website.
+              </div>
+            </div>
+            <div className="hstack" style={{ gap: 8 }}>
+              <label className="btn" style={{ cursor: 'pointer' }}>
+                {bannerBusy ? 'Uploading…' : cohortRow?.image_url ? 'Replace' : 'Upload image'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={bannerBusy}
+                  style={{ display: 'none' }}
+                  onChange={(e) => { uploadBanner(e.target.files?.[0]); e.target.value = ''; }}
+                />
+              </label>
+              {cohortRow?.image_url && (
+                <Button size="sm" variant="ghost" disabled={bannerBusy} onClick={removeBanner}>Remove</Button>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
 
       {!bootcampId ? (
         <Card><Empty icon="📱" title="No cohort selected" subtitle="Choose a cohort in the sidebar first." /></Card>
@@ -174,6 +263,26 @@ export default function AdminApps() {
             </>
           }
         >
+          <Field label="Cohort — the public page this app appears on">
+            <Select
+              value={form.bootcamp_id || ''}
+              onChange={(e) => setForm({ ...form, bootcamp_id: Number(e.target.value) })}
+            >
+              {cohorts.length === 0 && <option value={bootcampId}>Current cohort</option>}
+              {cohorts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}{c.public_visible ? '' : ' (not public yet)'}
+                </option>
+              ))}
+            </Select>
+            {!cohorts.find((c) => c.id === Number(form.bootcamp_id))?.public_visible && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                This cohort is not visible on the website yet, so the app stays hidden
+                until an admin turns its visibility on.
+              </div>
+            )}
+          </Field>
+
           <Field label="App title">
             <Input
               value={form.title}
