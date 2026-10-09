@@ -15,6 +15,7 @@ export default function StudentDesigns() {
   const [designs, setDesigns] = useState(null);
   const [values, setValues] = useState({});   // designId -> { fieldKey: text }
   const [busy, setBusy] = useState({});
+  const [imgBusy, setImgBusy] = useState(null); // field key being uploaded
 
   const load = async () => {
     const list = await api.get('/api/designs/mine');
@@ -27,6 +28,20 @@ export default function StudentDesigns() {
 
   const setVal = (did, key, text) =>
     setValues((s) => ({ ...s, [did]: { ...s[did], [key]: text } }));
+
+  // Image areas upload to the design's own store, not S3, so the exported
+  // canvas stays same-origin and untainted.
+  const uploadImage = async (d, f, file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast.err('Please choose an image file'); return; }
+    setImgBusy(f.key);
+    try {
+      const res = await api.uploadTo(`/api/designs/${d.id}/upload-image`, file);
+      setVal(d.id, f.key, res.url);
+      toast.ok(`${f.label} added — remember to Save`);
+    } catch (e) { toast.err(e.message); }
+    setImgBusy(null);
+  };
 
   const save = async (d) => {
     const missing = (d.fields || []).filter((f) => f.required && !String(values[d.id]?.[f.key] || '').trim());
@@ -87,7 +102,7 @@ export default function StudentDesigns() {
                   </div>
                 ) : (
                   <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 10 }}>
-                    Type straight onto the design. Text shrinks automatically so it always fits its box.
+                    Type straight onto the design, and tap an image box to upload a picture. Text shrinks automatically so it always fits.
                   </div>
                 )}
 
@@ -96,6 +111,8 @@ export default function StudentDesigns() {
                   design={d}
                   values={values[d.id] || {}}
                   onChange={(key, text) => setVal(d.id, key, text)}
+                  onUploadImage={(f, file) => uploadImage(d, f, file)}
+                  busyKey={imgBusy}
                 />
 
                 <div className="hstack" style={{ gap: 8, marginTop: 12, flexWrap: 'wrap' }}>

@@ -10,7 +10,29 @@ import { BASE } from '../lib/api';
  * would make every download throw a SecurityError.
  */
 
+/**
+ * Split a single token that is wider than the box into chunks that fit.
+ * Without this a pasted URL or an unspaced string is emitted as one line and
+ * runs straight off the artwork, because there is no space to wrap at.
+ */
+function breakToken(ctx, token, maxWidth) {
+  const chunks = [];
+  let cur = '';
+  for (const ch of String(token)) {
+    const attempt = cur + ch;
+    if (!cur || ctx.measureText(attempt).width <= maxWidth) {
+      cur = attempt;
+    } else {
+      chunks.push(cur);
+      cur = ch;
+    }
+  }
+  if (cur) chunks.push(cur);
+  return chunks;
+}
+
 // Wrap text to a pixel width, honouring explicit newlines the student typed.
+// Every returned line fits maxWidth, except where a single character cannot.
 export function wrapText(ctx, text, maxWidth) {
   const lines = [];
   for (const paragraph of String(text ?? '').split('\n')) {
@@ -18,11 +40,18 @@ export function wrapText(ctx, text, maxWidth) {
     let line = '';
     for (const word of paragraph.split(/\s+/)) {
       const attempt = line ? `${line} ${word}` : word;
-      if (ctx.measureText(attempt).width <= maxWidth || !line) {
+      if (ctx.measureText(attempt).width <= maxWidth) {
         line = attempt;
-      } else {
-        lines.push(line);
+        continue;
+      }
+      if (line) { lines.push(line); line = ''; }
+      // The word alone may still be too wide — break it rather than overflow.
+      if (ctx.measureText(word).width <= maxWidth) {
         line = word;
+      } else {
+        const chunks = breakToken(ctx, word, maxWidth);
+        lines.push(...chunks.slice(0, -1));
+        line = chunks[chunks.length - 1] || '';
       }
     }
     lines.push(line);
@@ -45,7 +74,10 @@ export function fitFontSize(ctx, text, f, boxW, boxH) {
   const fits = (size) => {
     ctx.font = `${f.bold ? '700' : '400'} ${size}px ${f.fontFamily}`;
     const lines = wrapText(ctx, text, boxW);
-    return lines.length * size * f.lineHeight <= boxH;
+    if (lines.length * size * f.lineHeight > boxH) return false;
+    // Height alone is not enough: a token that cannot be broken any further
+    // can still be wider than the box.
+    return lines.every((l) => ctx.measureText(l).width <= boxW + 0.5);
   };
   if (fits(base)) return base;
   // Binary search rather than stepping down one px at a time: this runs on
@@ -79,6 +111,42 @@ export function drawDesign(canvas, img, design, values, opts = {}) {
   ctx.drawImage(img, 0, 0, w, h);
 
   for (const f of design.fields || []) {
+    // ---- image areas ----
+    if (f.type === 'image') {
+      const picture = opts.images?.get(f.key);
+      const bx = (f.x / 100) * w;
+      const by = (f.y / 100) * h;
+      const bw = (f.w / 100) * w;
+      const bh = (f.h / 100) * h;
+
+      if (!picture) {
+        if (opts.showPlaceholders) {
+          ctx.save();
+          ctx.setLineDash([6, 5]);
+          ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+          ctx.strokeRect(bx, by, bw, bh);
+          ctx.restore();
+        }
+        continue;
+      }
+
+      // Cover fills the box and crops; contain fits the whole picture inside.
+      const sr = picture.naturalWidth / picture.naturalHeight;
+      const br = bw / bh;
+      let dw = bw;
+      let dh = bh;
+      if (f.fit === 'contain' ? sr > br : sr < br) dh = bw / sr; else dw = bh * sr;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(bx, by, bw, bh);
+      ctx.clip();
+      ctx.drawImage(picture, bx + (bw - dw) / 2, by + (bh - dh) / 2, dw, dh);
+      ctx.restore();
+      continue;
+    }
+
+    // ---- text areas ----
     const text = values?.[f.key];
     // In the editor, show the label so an empty area is still visible.
     const shown = text || (opts.showPlaceholders ? (f.placeholder || f.label) : '');
@@ -106,9 +174,19 @@ export function drawDesign(canvas, img, design, values, opts = {}) {
     // downloaded PNG sits higher than the text the student typed in place.
     const halfLeading = (size * (f.lineHeight - 1)) / 2;
 
+    // Final guarantee: clip to the field box. Auto-fit should already make the
+    // text fit, but at the 7px floor it may not, and the editor's textarea
+    // hides its overflow — so without this the export is the only place the
+    // text spills over the artwork.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(boxX, boxY, boxW, boxH);
+    ctx.clip();
+
     lines.forEach((line, i) => {
       ctx.fillText(line, anchorX, boxY + halfLeading + i * lineH);
     });
+    ctx.restore();
   }
   return canvas;
 }
@@ -119,10 +197,13 @@ export function drawDesign(canvas, img, design, values, opts = {}) {
  * against the site root and misses the API entirely. Prefix it with the API
  * base, exactly as Certificate.js does for the same reason.
  */
-export function bgUrl(design) {
-  const u = design?.background_url || '';
+export function resolveUrl(u) {
   if (!u) return '';
   return /^https?:/i.test(u) ? u : `${BASE}${u}`;
+}
+
+export function bgUrl(design) {
+  return resolveUrl(design?.background_url || '');
 }
 
 // crossOrigin is set so the canvas stays exportable when the API is on another
@@ -139,10 +220,26 @@ export function loadBackground(design) {
   });
 }
 
+/**
+ * Load every picture a student has placed in an image area. Resolved before
+ * drawing because the canvas API is synchronous — and a failed load resolves
+ * to null rather than rejecting, so one broken picture can't block an export.
+ */
+export async function loadFieldImages(design, values) {
+  const out = new Map();
+  const wanted = (design.fields || []).filter((f) => f.type === 'image' && values?.[f.key]);
+  await Promise.all(wanted.map(async (f) => {
+    try {
+      out.set(f.key, await loadBackground(resolveUrl(values[f.key])));
+    } catch { /* leave the box empty rather than fail the whole render */ }
+  }));
+  return out;
+}
+
 export async function renderToDataUrl(design, values, type = 'image/png', quality = 0.95) {
-  const img = await loadBackground(design);
+  const [img, images] = await Promise.all([loadBackground(design), loadFieldImages(design, values)]);
   const canvas = document.createElement('canvas');
-  drawDesign(canvas, img, design, values);
+  drawDesign(canvas, img, design, values, { images });
   return canvas.toDataURL(type, quality);
 }
 
@@ -154,10 +251,10 @@ export default function DesignCanvas({ design, values, showPlaceholders = false,
   useEffect(() => {
     let cancelled = false;
     if (!design?.background_url) return undefined;
-    loadBackground(design)
-      .then((img) => {
+    Promise.all([loadBackground(design), loadFieldImages(design, values)])
+      .then(([img, images]) => {
         if (cancelled || !ref.current) return;
-        drawDesign(ref.current, img, design, values, { showPlaceholders });
+        drawDesign(ref.current, img, design, values, { showPlaceholders, images });
         setErr(null);
       })
       .catch((e) => !cancelled && setErr(e.message));

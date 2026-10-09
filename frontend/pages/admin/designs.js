@@ -20,9 +20,11 @@ const HANDLES = [
   { mode: 'w',  cursor: 'ew-resize',   pos: { left: -6, top: 'calc(50% - 5px)' } },
 ];
 
-const newField = (n) => ({
+const newField = (n, type = 'text') => ({
+  type,
+  fit: 'cover',
   key: `field_${n}`,
-  label: `Text area ${n}`,
+  label: type === 'image' ? `Image ${n}` : `Text area ${n}`,
   placeholder: '',
   x: 10, y: 10, w: 40, h: 15,
   fontSize: 20, lineHeight: 1.35,
@@ -107,8 +109,8 @@ export default function AdminDesigns() {
 
   const patchField = (i, p) =>
     setForm((f) => ({ ...f, fields: f.fields.map((x, idx) => (idx === i ? { ...x, ...p } : x)) }));
-  const addField = () =>
-    setForm((f) => { const n = f.fields.length + 1; setSel(f.fields.length); return { ...f, fields: [...f.fields, newField(n)] }; });
+  const addField = (type = 'text') =>
+    setForm((f) => { const n = f.fields.length + 1; setSel(f.fields.length); return { ...f, fields: [...f.fields, newField(n, type)] }; });
   const removeField = (i) =>
     setForm((f) => ({ ...f, fields: f.fields.filter((_, idx) => idx !== i) }));
 
@@ -295,7 +297,11 @@ export default function AdminDesigns() {
                   <div className="hstack" style={{ gap: 8, flexWrap: 'wrap' }}>
                     <strong>{d.title}</strong>
                     <Badge color={d.assigned ? 'green' : 'gray'}>{d.assigned ? 'Assigned' : 'Draft'}</Badge>
-                    <Badge color="blue">{d.fields.length} text area{d.fields.length === 1 ? '' : 's'}</Badge>
+                    <Badge color="blue">
+                      {d.fields.filter((f) => f.type !== 'image').length} text
+                      {' · '}
+                      {d.fields.filter((f) => f.type === 'image').length} image
+                    </Badge>
                     <Badge color="purple">per {d.submit_as}</Badge>
                   </div>
                   {d.description && (
@@ -349,8 +355,11 @@ export default function AdminDesigns() {
           ) : (
             <>
               <div className="hstack" style={{ justifyContent: 'space-between', margin: '10px 0 6px' }}>
-                <strong style={{ fontSize: 14 }}>Text areas</strong>
-                <Button size="sm" onClick={addField}>+ Add text area</Button>
+                <strong style={{ fontSize: 14 }}>Areas</strong>
+                <span className="hstack" style={{ gap: 8 }}>
+                  <Button size="sm" onClick={() => addField('text')}>+ Text area</Button>
+                  <Button size="sm" onClick={() => addField('image')}>+ Image area</Button>
+                </span>
               </div>
 
               {/* Drag the boxes onto the background. */}
@@ -365,7 +374,7 @@ export default function AdminDesigns() {
                   <div
                     key={i}
                     onPointerDown={(e) => beginDrag(e, i, 'move')}
-                    title={`${f.label} — drag to move, grab an edge to resize`}
+                    title={`${f.label} (${f.type === 'image' ? 'image' : 'text'}) — drag to move, grab an edge to resize`}
                     style={{
                       position: 'absolute',
                       left: `${f.x}%`, top: `${f.y}%`, width: `${f.w}%`, height: `${f.h}%`,
@@ -404,34 +413,48 @@ export default function AdminDesigns() {
                     <Field label="Label (what the student sees)">
                       <Input value={field.label} onChange={(e) => patchField(sel, { label: e.target.value })} />
                     </Field>
-                    <Field label="Placeholder">
-                      <Input value={field.placeholder} onChange={(e) => patchField(sel, { placeholder: e.target.value })} />
-                    </Field>
                     <Field label="Width (%)">
                       <Input type="number" value={field.w} onChange={(e) => patchField(sel, { w: Number(e.target.value) })} />
                     </Field>
                     <Field label="Height (%)">
                       <Input type="number" value={field.h} onChange={(e) => patchField(sel, { h: Number(e.target.value) })} />
                     </Field>
-                    <Field label="Font size (px)">
-                      <Input type="number" value={field.fontSize} onChange={(e) => patchField(sel, { fontSize: Number(e.target.value) })} />
-                    </Field>
-                    <Field label="Colour">
-                      <Input type="color" value={field.color} onChange={(e) => patchField(sel, { color: e.target.value })} />
-                    </Field>
-                    <Field label="Align">
-                      <Select value={field.align} onChange={(e) => patchField(sel, { align: e.target.value })}>
-                        <option value="left">left</option>
-                        <option value="center">center</option>
-                        <option value="right">right</option>
-                      </Select>
-                    </Field>
-                    <Field label="Max characters">
-                      <Input type="number" value={field.maxLength} onChange={(e) => patchField(sel, { maxLength: Number(e.target.value) })} />
-                    </Field>
+
+                    {field.type === 'image' ? (
+                      <Field label="How the picture fills the box">
+                        <Select value={field.fit || 'cover'} onChange={(e) => patchField(sel, { fit: e.target.value })}>
+                          <option value="cover">Cover — fill the box, crop the overflow</option>
+                          <option value="contain">Contain — fit the whole picture inside</option>
+                        </Select>
+                      </Field>
+                    ) : (
+                      <>
+                        <Field label="Placeholder">
+                          <Input value={field.placeholder} onChange={(e) => patchField(sel, { placeholder: e.target.value })} />
+                        </Field>
+                        <Field label="Font size (px) — shrinks automatically to fit">
+                          <Input type="number" value={field.fontSize} onChange={(e) => patchField(sel, { fontSize: Number(e.target.value) })} />
+                        </Field>
+                        <Field label="Colour">
+                          <Input type="color" value={field.color} onChange={(e) => patchField(sel, { color: e.target.value })} />
+                        </Field>
+                        <Field label="Align">
+                          <Select value={field.align} onChange={(e) => patchField(sel, { align: e.target.value })}>
+                            <option value="left">left</option>
+                            <option value="center">center</option>
+                            <option value="right">right</option>
+                          </Select>
+                        </Field>
+                        <Field label="Max characters">
+                          <Input type="number" value={field.maxLength} onChange={(e) => patchField(sel, { maxLength: Number(e.target.value) })} />
+                        </Field>
+                      </>
+                    )}
                   </div>
                   <div className="hstack" style={{ gap: 18, flexWrap: 'wrap' }}>
-                    <Switch checked={!!field.bold} onChange={(v) => patchField(sel, { bold: v })} label="Bold" />
+                    {field.type !== 'image' && (
+                      <Switch checked={!!field.bold} onChange={(v) => patchField(sel, { bold: v })} label="Bold" />
+                    )}
                     <Switch checked={!!field.required} onChange={(v) => patchField(sel, { required: v })} label="Required" />
                   </div>
                 </Card>

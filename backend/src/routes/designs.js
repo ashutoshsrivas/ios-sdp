@@ -48,6 +48,10 @@ function cleanFields(input) {
     return Math.min(max, Math.max(min, n));
   };
   return input.slice(0, 40).map((f, i) => ({
+    // An image area is a box the student uploads a picture into; the creator
+    // fixes its size and how the picture fills it.
+    type: f.type === 'image' ? 'image' : 'text',
+    fit: f.fit === 'contain' ? 'contain' : 'cover',
     key: String(f.key || `field_${i + 1}`).slice(0, 40),
     label: String(f.label || `Text area ${i + 1}`).slice(0, 120),
     placeholder: String(f.placeholder || '').slice(0, 200),
@@ -250,6 +254,32 @@ router.get('/mine', requireRole('student'), ah(async (req, res) => {
   }));
 }));
 
+// POST /api/designs/:id/upload-image — multipart "file".
+// Deliberately NOT the shared S3 uploader: the export draws this into a canvas
+// and an S3 URL is cross-origin, which taints it and breaks every download.
+// These land beside the backgrounds and are served by the same /bg/ route.
+router.post('/:id/upload-image', upload.single('file'), ah(async (req, res) => {
+  if (!req.file) throw new HttpError(400, 'No image provided (field name must be "file")');
+  const id = Number(req.params.id);
+  const rows = await q(`SELECT * FROM designs WHERE id = ?`, [id]);
+  const design = rows[0];
+  if (!design) throw new HttpError(404, 'Design not found');
+
+  // Students may only upload into a design actually assigned to their cohort.
+  if (req.user.role === 'student') {
+    const student = await currentStudent(req.user.id);
+    if (!student) throw new HttpError(404, 'No student profile linked to this account');
+    if (!design.assigned || design.bootcamp_id !== student.bootcamp_id) {
+      throw new HttpError(403, 'This design is not assigned to you');
+    }
+  } else if (!['admin', 'mentor'].includes(req.user.role)) {
+    throw new HttpError(403, 'Not allowed');
+  }
+
+  const file = path.basename(req.file.path);
+  res.json({ path: file, url: `/api/designs/bg/${file}` });
+}));
+
 // POST /api/designs/:id/submit  { values } — upsert this student's/team's copy.
 router.post('/:id/submit', requireRole('student'), ah(async (req, res) => {
   const id = Number(req.params.id);
@@ -273,6 +303,13 @@ router.post('/:id/submit', requireRole('student'), ah(async (req, res) => {
   for (const f of fields) {
     const raw = incoming[f.key];
     if (raw == null) continue;
+    if (f.type === 'image') {
+      // Only a path this API served. Anything else would be an arbitrary URL
+      // rendered into other people's exports.
+      const v = String(raw);
+      if (v === '' || /^\/api\/designs\/bg\/[A-Za-z0-9._-]+$/.test(v)) values[f.key] = v;
+      continue;
+    }
     values[f.key] = String(raw).slice(0, f.maxLength || 500);
   }
 

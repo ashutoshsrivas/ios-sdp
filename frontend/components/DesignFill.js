@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { bgUrl, fitFontSize, getMeasureContext } from './DesignCanvas';
+import { bgUrl, resolveUrl, fitFontSize, getMeasureContext } from './DesignCanvas';
 
 /**
  * Fill in a design by typing directly on it.
@@ -15,7 +15,7 @@ import { bgUrl, fitFontSize, getMeasureContext } from './DesignCanvas';
  *    by (displayed width / natural width), so the layout is identical at any
  *    screen size.
  */
-export default function DesignFill({ design, values, onChange, disabled }) {
+export default function DesignFill({ design, values, onChange, onUploadImage, disabled, busyKey }) {
   const wrapRef = useRef(null);
   const [scale, setScale] = useState(0);
   const [err, setErr] = useState(null);
@@ -65,6 +65,47 @@ export default function DesignFill({ design, values, onChange, disabled }) {
       )}
 
       {scale > 0 && (design.fields || []).map((f) => {
+        // ---- image area: upload a picture into the box ----
+        if (f.type === 'image') {
+          const src = values?.[f.key];
+          const uploading = busyKey === f.key;
+          return (
+            <label
+              key={f.key}
+              title={f.label}
+              style={{
+                position: 'absolute',
+                left: `${f.x}%`, top: `${f.y}%`, width: `${f.w}%`, height: `${f.h}%`,
+                cursor: disabled ? 'not-allowed' : 'pointer',
+                overflow: 'hidden', borderRadius: 2,
+                boxShadow: src ? 'none' : 'inset 0 0 0 1px rgba(0,122,255,0.45)',
+                background: src ? 'transparent' : 'rgba(255,255,255,0.55)',
+                display: 'grid', placeItems: 'center',
+              }}
+            >
+              {src ? (
+                <img
+                  src={resolveUrl(src)}
+                  alt={f.label}
+                  style={{ width: '100%', height: '100%', objectFit: f.fit || 'cover', display: 'block' }}
+                />
+              ) : (
+                <span style={{ fontSize: Math.max(9, 13 * scale * 2), color: '#1f6feb', textAlign: 'center', padding: 4 }}>
+                  {uploading ? 'Uploading…' : `+ ${f.label}`}
+                </span>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                disabled={disabled || uploading}
+                style={{ display: 'none' }}
+                onChange={(e) => { onUploadImage?.(f, e.target.files?.[0]); e.target.value = ''; }}
+              />
+            </label>
+          );
+        }
+
+        // ---- text area ----
         const text = values?.[f.key] || '';
         const boxW = (f.w / 100) * natW;
         const boxH = (f.h / 100) * natH;
