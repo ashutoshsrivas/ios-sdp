@@ -269,3 +269,14 @@ CREATE TABLE IF NOT EXISTS cohort_apps (
 
 -- Per-question upload cap. NULL means "use the global max_upload_mb setting".
 -- Added to the questions table via ensureColumn() in db.js for existing DBs.
+
+-- Fine-grained access rights granted to a user on top of their role.
+-- Admins implicitly hold every permission and have no rows here.
+CREATE TABLE IF NOT EXISTS user_permissions (
+  user_id INT NOT NULL,
+  permission VARCHAR(64) NOT NULL,
+  granted_by INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, permission),
+  CONSTRAINT fk_perm_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

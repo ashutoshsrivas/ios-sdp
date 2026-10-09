@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const { q } = require('../db');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { ah, HttpError } = require('../util');
+const { PERMISSIONS, GRANTABLE_ROLES, isValidPermission } = require('../permissions');
 
 const router = express.Router();
 
@@ -23,7 +24,16 @@ router.get(
       params.push(role);
     }
     sql += ` ORDER BY role, name`;
-    res.json(await q(sql, params));
+    const users = await q(sql, params);
+
+    const grants = await q(`SELECT user_id, permission FROM user_permissions`);
+    const byUser = new Map();
+    for (const g of grants) {
+      if (!isValidPermission(g.permission)) continue;
+      if (!byUser.has(g.user_id)) byUser.set(g.user_id, []);
+      byUser.get(g.user_id).push(g.permission);
+    }
+    res.json(users.map((u) => ({ ...u, permissions: byUser.get(u.id) || [] })));
   })
 );
 
@@ -100,6 +110,51 @@ router.delete(
     if (id === req.user.id) throw new HttpError(400, 'You cannot delete your own account');
     await q(`DELETE FROM users WHERE id = ?`, [id]);
     res.json({ ok: true });
+  })
+);
+
+// GET /api/users/permissions/catalogue  (admin) — what can be granted.
+// Declared before /:id routes so "permissions" is never read as an id.
+router.get(
+  '/permissions/catalogue',
+  requireRole('admin'),
+  ah(async (_req, res) => {
+    res.json({ permissions: PERMISSIONS, grantableRoles: GRANTABLE_ROLES });
+  })
+);
+
+// PUT /api/users/:id/permissions  { permissions: string[] }  (admin)
+// Replaces the user's grants with exactly this list.
+router.put(
+  '/:id/permissions',
+  requireRole('admin'),
+  ah(async (req, res) => {
+    const id = Number(req.params.id);
+    const rows = await q(`SELECT id, role FROM users WHERE id = ?`, [id]);
+    const target = rows[0];
+    if (!target) throw new HttpError(404, 'User not found');
+
+    if (target.role === 'admin') {
+      throw new HttpError(400, 'Admins already have every access right.');
+    }
+    if (!GRANTABLE_ROLES.includes(target.role)) {
+      throw new HttpError(400, `Access rights cannot be granted to a ${target.role}.`);
+    }
+
+    const list = Array.isArray(req.body?.permissions) ? req.body.permissions : [];
+    const unknown = list.filter((k) => !isValidPermission(k));
+    if (unknown.length) throw new HttpError(400, `Unknown access right: ${unknown.join(', ')}`);
+
+    // Replace wholesale so unticking a box actually revokes it.
+    const wanted = [...new Set(list)];
+    await q(`DELETE FROM user_permissions WHERE user_id = ?`, [id]);
+    for (const key of wanted) {
+      await q(
+        `INSERT INTO user_permissions (user_id, permission, granted_by) VALUES (?,?,?)`,
+        [id, key, req.user.id]
+      );
+    }
+    res.json({ ok: true, permissions: wanted });
   })
 );
 

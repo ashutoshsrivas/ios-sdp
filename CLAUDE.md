@@ -151,6 +151,15 @@ then reinstall, run `npm run build` in frontend (the box has 1.8 GB RAM and no s
 - **Upload progress**: `fetch` cannot report upload progress, so `api.uploadWithProgress()`
   uses XMLHttpRequest and `upload.onprogress`. At 100% the bytes have only left the
   browser — the server is still streaming to S3 — so `ProgressBar` shows "Finishing…".
+- **Access rights** (`permissions.js`): named grants on top of a role, so someone can run
+  the public website without being an admin. Catalogue is `website.highlights` and
+  `website.apps`; grantable to mentors and volunteers only. Admins implicitly hold every
+  permission and have no `user_permissions` rows. Guard routes with
+  `requirePermission(...keys)`, not `requireRole('admin')`.
+  Two deliberate choices: permissions are read from the DB per request, never from the
+  JWT (tokens last 7 days, so a revoked right would otherwise stay usable for a week);
+  and `permissionsFor()` returns [] for any non-grantable role, so demoting a mentor to
+  student cannot leave stale grants live. Admin UI is Users → Access.
 - **Reports**: `GET /api/reports?bootcamp=` (admin) returns the raw data. The analytics are
   computed in `pages/admin/reports.js`.
 

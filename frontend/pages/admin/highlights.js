@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useRequireRole } from '../../lib/auth';
+import { useRequirePermission } from '../../lib/auth';
 import { api } from '../../lib/api';
 import Layout, { PageHead } from '../../components/Layout';
 import {
@@ -9,7 +9,7 @@ import {
 const BLANK = { title: '', description: '', event_date: '', published: false, sort_order: '' };
 
 export default function AdminHighlights() {
-  const { ok } = useRequireRole(['admin']);
+  const { ok } = useRequirePermission('website.highlights');
   const toast = useToast();
 
   const [items, setItems] = useState(null);

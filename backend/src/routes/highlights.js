@@ -1,6 +1,7 @@
 const express = require('express');
 const { q } = require('../db');
-const { authRequired, requireRole } = require('../middleware/auth');
+const { authRequired } = require('../middleware/auth');
+const { requirePermission } = require('../permissions');
 const { ah, HttpError } = require('../util');
 const { cleanRichText, cleanPlain, cleanUrl } = require('../sanitize');
 
@@ -26,7 +27,7 @@ async function withPhotos(rows) {
 // GET /api/highlights  (admin) — every highlight, published or not.
 router.get(
   '/',
-  requireRole('admin'),
+  requirePermission('website.highlights'),
   ah(async (_req, res) => {
     const rows = await q(
       `SELECT * FROM highlights
@@ -39,7 +40,7 @@ router.get(
 // POST /api/highlights  (admin)
 router.post(
   '/',
-  requireRole('admin'),
+  requirePermission('website.highlights'),
   ah(async (req, res) => {
     const { title, description, event_date, published, sort_order } = req.body || {};
     const cleanTitle = cleanPlain(title);
@@ -63,7 +64,7 @@ router.post(
 // PUT /api/highlights/:id  (admin)
 router.put(
   '/:id',
-  requireRole('admin'),
+  requirePermission('website.highlights'),
   ah(async (req, res) => {
     const id = Number(req.params.id);
     const rows = await q(`SELECT id FROM highlights WHERE id = ?`, [id]);
@@ -96,7 +97,7 @@ router.put(
 // DELETE /api/highlights/:id  (admin) — photos cascade.
 router.delete(
   '/:id',
-  requireRole('admin'),
+  requirePermission('website.highlights'),
   ah(async (req, res) => {
     const id = Number(req.params.id);
     const rows = await q(`SELECT id FROM highlights WHERE id = ?`, [id]);
@@ -110,7 +111,7 @@ router.delete(
 // Upload the file via POST /api/uploads first, then send its url here.
 router.post(
   '/:id/photos',
-  requireRole('admin'),
+  requirePermission('website.highlights'),
   ah(async (req, res) => {
     const id = Number(req.params.id);
     const rows = await q(`SELECT id FROM highlights WHERE id = ?`, [id]);
@@ -137,7 +138,7 @@ router.post(
 // PUT /api/highlights/photos/:photoId  (admin) — caption / ordering.
 router.put(
   '/photos/:photoId',
-  requireRole('admin'),
+  requirePermission('website.highlights'),
   ah(async (req, res) => {
     const photoId = Number(req.params.photoId);
     const rows = await q(`SELECT id FROM highlight_photos WHERE id = ?`, [photoId]);
@@ -161,7 +162,7 @@ router.put(
 // DELETE /api/highlights/photos/:photoId  (admin)
 router.delete(
   '/photos/:photoId',
-  requireRole('admin'),
+  requirePermission('website.highlights'),
   ah(async (req, res) => {
     const photoId = Number(req.params.photoId);
     const rows = await q(`SELECT id FROM highlight_photos WHERE id = ?`, [photoId]);

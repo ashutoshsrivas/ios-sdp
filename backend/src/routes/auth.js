@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const { q } = require('../db');
 const { signToken, authRequired } = require('../middleware/auth');
 const { ah, HttpError } = require('../util');
+const { permissionsFor } = require('../permissions');
 
 const router = express.Router();
 
@@ -22,7 +23,10 @@ router.post(
     const token = signToken(user);
     res.json({
       token,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      user: {
+        id: user.id, name: user.name, email: user.email, role: user.role,
+        permissions: await permissionsFor(user),
+      },
     });
   })
 );
@@ -42,7 +46,11 @@ router.get(
       const s = await q(`SELECT * FROM students WHERE user_id = ? LIMIT 1`, [req.user.id]);
       student = s[0] || null;
     }
-    res.json({ user: rows[0], student });
+    // Permissions ride along with the profile so the UI can hide what the user
+    // cannot do. They are read here, not from the JWT, so a revoked right takes
+    // effect on the next page load instead of when a 7-day token expires.
+    const permissions = await permissionsFor(rows[0]);
+    res.json({ user: { ...rows[0], permissions }, student });
   })
 );
 

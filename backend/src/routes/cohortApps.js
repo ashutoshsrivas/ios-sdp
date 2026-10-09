@@ -1,6 +1,7 @@
 const express = require('express');
 const { q } = require('../db');
-const { authRequired, requireRole } = require('../middleware/auth');
+const { authRequired } = require('../middleware/auth');
+const { requirePermission } = require('../permissions');
 const { ah, HttpError } = require('../util');
 const { cleanModalHtml, cleanRichText, cleanPlain, cleanUrl } = require('../sanitize');
 
@@ -11,7 +12,7 @@ router.use(authRequired);
 // Scoped like every other per-cohort list: a missing scope is a 400.
 router.get(
   '/',
-  requireRole('admin'),
+  requirePermission('website.apps'),
   ah(async (req, res) => {
     const cohortId = Number(req.query.cohort);
     if (!cohortId) throw new HttpError(400, 'A ?cohort=<id> query parameter is required');
@@ -28,7 +29,7 @@ router.get(
 // POST /api/cohort-apps  (admin)
 router.post(
   '/',
-  requireRole('admin'),
+  requirePermission('website.apps'),
   ah(async (req, res) => {
     const { bootcamp_id, title, description, hero_image_url, link_url, modal_html, published, sort_order } =
       req.body || {};
@@ -63,7 +64,7 @@ router.post(
 // PUT /api/cohort-apps/:id  (admin)
 router.put(
   '/:id',
-  requireRole('admin'),
+  requirePermission('website.apps'),
   ah(async (req, res) => {
     const id = Number(req.params.id);
     const rows = await q(`SELECT id FROM cohort_apps WHERE id = ?`, [id]);
@@ -98,7 +99,7 @@ router.put(
 // DELETE /api/cohort-apps/:id  (admin)
 router.delete(
   '/:id',
-  requireRole('admin'),
+  requirePermission('website.apps'),
   ah(async (req, res) => {
     const id = Number(req.params.id);
     const rows = await q(`SELECT id FROM cohort_apps WHERE id = ?`, [id]);

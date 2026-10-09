@@ -3,7 +3,7 @@ import { useRequireRole } from '../../lib/auth';
 import { api } from '../../lib/api';
 import Layout, { PageHead } from '../../components/Layout';
 import {
-  Card, Button, Loading, useToast, Badge, Avatar, Segmented, Modal, Field, Input, Select, Empty,
+  Card, Button, Loading, useToast, Badge, Avatar, Segmented, Modal, Field, Input, Select, Empty, Switch,
 } from '../../components/UI';
 
 const ROLE_COLOR = { admin: 'purple', mentor: 'blue', volunteer: 'green', student: 'orange' };
@@ -17,8 +17,34 @@ export default function AdminUsers() {
   const [editing, setEditing] = useState(null); // null | {} (new) | user
   const [form, setForm] = useState({});
   const [busy, setBusy] = useState(false);
+  // Access rights: the catalogue comes from the API so the UI can't drift
+  // from what the server will actually accept.
+  const [catalogue, setCatalogue] = useState({ permissions: [], grantableRoles: [] });
+  const [accessFor, setAccessFor] = useState(null);
+  const [accessSel, setAccessSel] = useState([]);
 
   const load = async () => setUsers(await api.get('/api/users'));
+
+  useEffect(() => {
+    if (!ok) return;
+    api.get('/api/users/permissions/catalogue').then(setCatalogue).catch(() => {});
+  }, [ok]);
+
+  const openAccess = (u) => { setAccessSel(u.permissions || []); setAccessFor(u); };
+
+  const toggleAccess = (key, on) =>
+    setAccessSel((xs) => (on ? [...new Set([...xs, key])] : xs.filter((k) => k !== key)));
+
+  const saveAccess = async () => {
+    setBusy(true);
+    try {
+      await api.put(`/api/users/${accessFor.id}/permissions`, { permissions: accessSel });
+      setAccessFor(null);
+      await load();
+      toast.ok('Access updated');
+    } catch (e) { toast.err(e.message); }
+    setBusy(false);
+  };
   useEffect(() => { if (ok) load().catch((e) => toast.err(e.message)); }, [ok]);
 
   const openNew = () => { setForm({ role: 'mentor' }); setEditing({}); };
@@ -77,12 +103,78 @@ export default function AdminUsers() {
               <div className="grow">
                 <div className="title">{u.name} <Badge color={ROLE_COLOR[u.role]}>{u.role}</Badge></div>
                 <div className="desc truncate">{u.email}{u.phone ? ` · ${u.phone}` : ''}</div>
+                {u.role === 'admin' ? (
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>Full access</div>
+                ) : u.permissions?.length ? (
+                  <div style={{ marginTop: 4 }}>
+                    {u.permissions.map((k) => (
+                      <Badge key={k} color="blue">
+                        {catalogue.permissions.find((p) => p.key === k)?.label || k}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
               </div>
+              {catalogue.grantableRoles?.includes(u.role) && (
+                <Button size="sm" onClick={() => openAccess(u)}>Access</Button>
+              )}
               <Button size="sm" onClick={() => openEdit(u)}>Edit</Button>
               <Button size="sm" variant="ghost" onClick={() => remove(u)}>Delete</Button>
             </div>
           ))}
         </div>
+      )}
+
+      {accessFor && (
+        <Modal
+          title={`Access · ${accessFor.name}`}
+          onClose={() => setAccessFor(null)}
+          footer={
+            <>
+              <Button onClick={() => setAccessFor(null)}>Cancel</Button>
+              <Button variant="primary" onClick={saveAccess} disabled={busy}>
+                {busy ? 'Saving…' : 'Save access'}
+              </Button>
+            </>
+          }
+        >
+          <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 14 }}>
+            Grant {accessFor.name} ({accessFor.role}) access to parts of the system
+            without making them an admin.
+          </p>
+
+          {Object.entries(
+            catalogue.permissions.reduce((acc, p) => {
+              (acc[p.group] = acc[p.group] || []).push(p);
+              return acc;
+            }, {})
+          ).map(([group, perms]) => (
+            <div key={group} style={{ marginBottom: 16 }}>
+              <div style={{
+                fontSize: 12, fontWeight: 600, textTransform: 'uppercase',
+                letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: 8,
+              }}>
+                {group}
+              </div>
+              {perms.map((p) => (
+                <div key={p.key} style={{ marginBottom: 10 }}>
+                  <Switch
+                    checked={accessSel.includes(p.key)}
+                    onChange={(v) => toggleAccess(p.key, v)}
+                    label={p.label}
+                  />
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 52, marginTop: 2 }}>
+                    {p.description}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+
+          {catalogue.permissions.length === 0 && (
+            <Empty icon="🔐" title="No access rights available" />
+          )}
+        </Modal>
       )}
 
       {editing && (

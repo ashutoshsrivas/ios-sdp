@@ -78,3 +78,40 @@ export function useRequireRole(roles) {
   }, [user, loading, roles, router]);
   return { user, loading, ok: !!user && (!roles || roles.includes(user.role)) };
 }
+
+/**
+ * Does the signed-in user hold this access right?
+ * Admins hold everything, which the API enforces too — this only decides
+ * what the UI offers, never what the server allows.
+ */
+export function hasPermission(user, key) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return Array.isArray(user.permissions) && user.permissions.includes(key);
+}
+
+export function usePermissions() {
+  const { user, loading } = useAuth();
+  return {
+    user,
+    loading,
+    can: (key) => hasPermission(user, key),
+    permissions: user?.permissions || [],
+  };
+}
+
+/**
+ * Page guard for a permission rather than a role, so a mentor or volunteer
+ * granted a website right can open the page while everyone else is sent home.
+ */
+export function useRequirePermission(key) {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+  const allowed = hasPermission(user, key);
+  useEffect(() => {
+    if (loading) return;
+    if (!user) router.replace('/login');
+    else if (!allowed) router.replace(HOME_FOR_ROLE[user.role] || '/login');
+  }, [user, loading, allowed, router]);
+  return { user, loading, ok: !!user && allowed };
+}

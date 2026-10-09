@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useState, useEffect } from 'react';
-import { useAuth } from '../lib/auth';
+import { useAuth, hasPermission } from '../lib/auth';
 import { useBootcamp } from '../lib/bootcamp';
 import { usePrefs } from '../lib/prefs';
 import { Avatar } from './UI';
@@ -104,7 +104,23 @@ export default function Layout({ children }) {
   const { theme, toggleTheme } = usePrefs() || {};
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const sections = user ? NAV[user.role] || [] : [];
+  // Website pages are permission-gated, not role-gated: a mentor or volunteer
+  // granted a website right gets the section too. Admins already have it via
+  // NAV.admin, so it is only appended for everyone else.
+  const sections = (() => {
+    if (!user) return [];
+    const base = NAV[user.role] || [];
+    if (user.role === 'admin') return base;
+
+    const items = [];
+    if (hasPermission(user, 'website.highlights')) {
+      items.push({ href: '/admin/highlights', label: 'Highlights', icon: 'star' });
+    }
+    if (hasPermission(user, 'website.apps')) {
+      items.push({ href: '/admin/apps', label: 'Apps', icon: 'grid' });
+    }
+    return items.length ? [...base, { section: 'Website', items }] : base;
+  })();
   const showSwitch = user && user.role !== 'student' && bootcamps && bootcamps.length > 0;
 
   useEffect(() => { setOpen(false); }, [router.pathname]);

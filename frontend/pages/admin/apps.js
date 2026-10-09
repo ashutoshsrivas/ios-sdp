@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useRequireRole } from '../../lib/auth';
+import { useRequirePermission } from '../../lib/auth';
 import { useBootcamp } from '../../lib/bootcamp';
 import { api } from '../../lib/api';
 import Layout, { PageHead } from '../../components/Layout';
@@ -13,7 +13,7 @@ const BLANK = {
 };
 
 export default function AdminApps() {
-  const { ok } = useRequireRole(['admin']);
+  const { ok } = useRequirePermission('website.apps');
   const { bootcampId, bootcamps } = useBootcamp() || {};
   const toast = useToast();
 
