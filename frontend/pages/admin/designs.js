@@ -6,7 +6,7 @@ import Layout, { PageHead } from '../../components/Layout';
 import {
   Card, Button, Loading, useToast, Badge, Modal, Field, Input, Textarea, Select, Empty, Switch,
 } from '../../components/UI';
-import DesignCanvas, { renderToDataUrl } from '../../components/DesignCanvas';
+import DesignCanvas, { renderToDataUrl, bgUrl } from '../../components/DesignCanvas';
 
 const newField = (n) => ({
   key: `field_${n}`,
@@ -209,7 +209,7 @@ export default function AdminDesigns() {
             <Card key={d.id}>
               <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                 <img
-                  src={d.background_url}
+                  src={bgUrl(d)}
                   alt=""
                   style={{ width: 120, height: 84, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }}
                 />

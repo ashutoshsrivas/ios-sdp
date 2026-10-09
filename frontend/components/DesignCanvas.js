@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { BASE } from '../lib/api';
 
 /**
  * Renders a design: the background image with each text area drawn on top.
@@ -67,20 +68,34 @@ export function drawDesign(canvas, img, design, values, opts = {}) {
   return canvas;
 }
 
-// Load the background. Same-origin, but crossOrigin is set so the canvas stays
-// exportable if the API is ever served from another host.
-export function loadBackground(url) {
+/**
+ * The API returns a root-relative background path (/api/designs/bg/...). The
+ * app is served under a basePath (/sdp), so using that path as-is resolves
+ * against the site root and misses the API entirely. Prefix it with the API
+ * base, exactly as Certificate.js does for the same reason.
+ */
+export function bgUrl(design) {
+  const u = design?.background_url || '';
+  if (!u) return '';
+  return /^https?:/i.test(u) ? u : `${BASE}${u}`;
+}
+
+// crossOrigin is set so the canvas stays exportable when the API is on another
+// origin (local dev: :4000 vs :3000). In production both are same-origin.
+export function loadBackground(design) {
+  const url = typeof design === 'string' ? design : bgUrl(design);
   return new Promise((resolve, reject) => {
+    if (!url) { reject(new Error('This design has no background image')); return; }
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('Could not load the design background'));
+    img.onerror = () => reject(new Error(`Could not load the design background (${url})`));
     img.src = url;
   });
 }
 
 export async function renderToDataUrl(design, values, type = 'image/png', quality = 0.95) {
-  const img = await loadBackground(design.background_url);
+  const img = await loadBackground(design);
   const canvas = document.createElement('canvas');
   drawDesign(canvas, img, design, values);
   return canvas.toDataURL(type, quality);
@@ -94,7 +109,7 @@ export default function DesignCanvas({ design, values, showPlaceholders = false,
   useEffect(() => {
     let cancelled = false;
     if (!design?.background_url) return undefined;
-    loadBackground(design.background_url)
+    loadBackground(design)
       .then((img) => {
         if (cancelled || !ref.current) return;
         drawDesign(ref.current, img, design, values, { showPlaceholders });
