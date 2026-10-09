@@ -8,6 +8,18 @@ import {
 } from '../../components/UI';
 import DesignCanvas, { renderToDataUrl, bgUrl } from '../../components/DesignCanvas';
 
+// Resize handles: eight compass points, positioned on the box's edges.
+const HANDLES = [
+  { mode: 'nw', cursor: 'nwse-resize', pos: { left: -6, top: -6 } },
+  { mode: 'n',  cursor: 'ns-resize',   pos: { left: 'calc(50% - 5px)', top: -6 } },
+  { mode: 'ne', cursor: 'nesw-resize', pos: { right: -6, top: -6 } },
+  { mode: 'e',  cursor: 'ew-resize',   pos: { right: -6, top: 'calc(50% - 5px)' } },
+  { mode: 'se', cursor: 'nwse-resize', pos: { right: -6, bottom: -6 } },
+  { mode: 's',  cursor: 'ns-resize',   pos: { left: 'calc(50% - 5px)', bottom: -6 } },
+  { mode: 'sw', cursor: 'nesw-resize', pos: { left: -6, bottom: -6 } },
+  { mode: 'w',  cursor: 'ew-resize',   pos: { left: -6, top: 'calc(50% - 5px)' } },
+];
+
 const newField = (n) => ({
   key: `field_${n}`,
   label: `Text area ${n}`,
@@ -100,20 +112,86 @@ export default function AdminDesigns() {
   const removeField = (i) =>
     setForm((f) => ({ ...f, fields: f.fields.filter((_, idx) => idx !== i) }));
 
-  // Drag a box around the stage; coordinates are percentages of the background.
+  /**
+   * Move or resize a box by pointer. `drag` is {i, mode, startX, startY, orig}
+   * where mode is 'move' or a compass edge ('n','se',…).
+   *
+   * Everything is computed from the ORIGINAL geometry plus the total pointer
+   * delta, not incrementally from the current value — incremental updates
+   * accumulate rounding error and the box creeps as you drag.
+   */
+  const beginDrag = (e, i, mode) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const r = stageRef.current?.getBoundingClientRect();
+    if (!r) return;
+    setSel(i);
+    setDrag({
+      i,
+      mode,
+      startX: ((e.clientX - r.left) / r.width) * 100,
+      startY: ((e.clientY - r.top) / r.height) * 100,
+      orig: { ...form.fields[i] },
+    });
+  };
+
   useEffect(() => {
-    if (drag == null) return undefined;
+    if (!drag) return undefined;
+    const MIN = 3; // percent — small enough to be useful, big enough to grab
+    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+    const round = (v) => Math.round(v * 10) / 10;
+
     const move = (e) => {
       const r = stageRef.current?.getBoundingClientRect();
       if (!r) return;
-      const x = Math.min(100, Math.max(0, ((e.clientX - r.left) / r.width) * 100));
-      const y = Math.min(100, Math.max(0, ((e.clientY - r.top) / r.height) * 100));
-      patchField(drag, { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
+      const dx = ((e.clientX - r.left) / r.width) * 100 - drag.startX;
+      const dy = ((e.clientY - r.top) / r.height) * 100 - drag.startY;
+      const o = drag.orig;
+      const m = drag.mode;
+      let { x, y, w, h } = o;
+
+      if (m === 'move') {
+        x = o.x + dx;
+        y = o.y + dy;
+      } else {
+        // Dragging a north/west edge moves the origin as well as the size.
+        if (m.includes('e')) w = o.w + dx;
+        if (m.includes('s')) h = o.h + dy;
+        if (m.includes('w')) { w = o.w - dx; x = o.x + dx; }
+        if (m.includes('n')) { h = o.h - dy; y = o.y + dy; }
+
+        // Hitting the minimum must pin the edge being dragged, not flip the box.
+        if (w < MIN) { if (m.includes('w')) x = o.x + o.w - MIN; w = MIN; }
+        if (h < MIN) { if (m.includes('n')) y = o.y + o.h - MIN; h = MIN; }
+      }
+
+      // Keep the whole box on the background. Which value gives way depends on
+      // the gesture: moving preserves the size and pins the position, resizing
+      // pins the origin and truncates the size. Clamping size first on a resize
+      // would drag the opposite edge along — pulling the east edge right would
+      // shunt the west edge left once it maxed out.
+      if (m === 'move') {
+        x = clamp(x, 0, 100 - w);
+        y = clamp(y, 0, 100 - h);
+      } else {
+        x = clamp(x, 0, 100 - MIN);
+        y = clamp(y, 0, 100 - MIN);
+        w = clamp(w, MIN, 100 - x);
+        h = clamp(h, MIN, 100 - y);
+      }
+
+      patchField(drag.i, { x: round(x), y: round(y), w: round(w), h: round(h) });
     };
+
     const up = () => setDrag(null);
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointercancel', up);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
   }, [drag]);
 
   const save = async () => {
@@ -280,22 +358,35 @@ export default function AdminDesigns() {
                 ref={stageRef}
                 style={{ position: 'relative', userSelect: 'none', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--sep,#e5e5ea)' }}
               >
-                <DesignCanvas design={{ ...form, fields: [] }} values={{}} />
+                {/* The canvas draws the real wrapped text, so resizing a box
+                    visibly re-wraps it. The overlay is just the hit area. */}
+                <DesignCanvas design={form} values={{}} showPlaceholders />
                 {form.fields.map((f, i) => (
                   <div
                     key={i}
-                    onPointerDown={(e) => { e.preventDefault(); setSel(i); setDrag(i); }}
-                    title={f.label}
+                    onPointerDown={(e) => beginDrag(e, i, 'move')}
+                    title={`${f.label} — drag to move, grab an edge to resize`}
                     style={{
                       position: 'absolute',
                       left: `${f.x}%`, top: `${f.y}%`, width: `${f.w}%`, height: `${f.h}%`,
-                      border: `2px solid ${i === sel ? 'var(--accent,#007aff)' : 'rgba(0,0,0,0.35)'}`,
-                      background: i === sel ? 'rgba(0,122,255,0.12)' : 'rgba(255,255,255,0.35)',
-                      cursor: 'move', borderRadius: 4,
-                      fontSize: 11, color: '#222', padding: 2, overflow: 'hidden',
+                      border: `1.5px ${i === sel ? 'solid' : 'dashed'} ${i === sel ? 'var(--accent,#007aff)' : 'rgba(0,0,0,0.4)'}`,
+                      background: i === sel ? 'rgba(0,122,255,0.08)' : 'transparent',
+                      cursor: 'move', borderRadius: 3, touchAction: 'none',
                     }}
                   >
-                    {f.label}
+                    {/* Resize handles, on the selected box only, to avoid clutter. */}
+                    {i === sel && HANDLES.map((hd) => (
+                      <span
+                        key={hd.mode}
+                        onPointerDown={(e) => beginDrag(e, i, hd.mode)}
+                        style={{
+                          position: 'absolute', width: 10, height: 10,
+                          background: '#fff', border: '1.5px solid var(--accent,#007aff)',
+                          borderRadius: 2, touchAction: 'none', cursor: hd.cursor,
+                          ...hd.pos,
+                        }}
+                      />
+                    ))}
                   </div>
                 ))}
               </div>
