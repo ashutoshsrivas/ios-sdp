@@ -42,10 +42,14 @@ ssh -i "$KEY" "$HOST" 'cd ~/ios-sdp
     echo "   git fetch ssh://'"$HOST"'/home/ubuntu/ios-sdp main:refs/remotes/server/main"
     exit 1
   fi
-  if ! git diff --quiet || ! git diff --cached --quiet; then
-    echo "!! Uncommitted changes on the server:"; git status --short; exit 1
+  # npm install rewrites the lockfiles on the ARM box every time, so that churn
+  # is expected and gets discarded by the reset. Anything else is real work
+  # someone did on the server and must not be thrown away silently.
+  OTHER=$(git status --porcelain | grep -v "package-lock.json$" || true)
+  if [ -n "$OTHER" ]; then
+    echo "!! Uncommitted changes on the server:"; echo "$OTHER"; exit 1
   fi
-  echo "    server is clean"'
+  echo "    server clean (lockfile churn ignored)"'
 
 echo "==> [3/6] Reset to origin/main"
 ssh -i "$KEY" "$HOST" 'cd ~/ios-sdp
